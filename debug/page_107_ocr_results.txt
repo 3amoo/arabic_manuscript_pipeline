@@ -1,0 +1,32 @@
+001_right.png	confidence=0.518	source=gemini	شَارَكَ فِيهِ الدَّيْلَمِيُّ الْخَدْمَا (١)
+001_left.png	confidence=0.621	source=paddle	قَرُوَ لَ شُلَْ يَدَا كِلَيهمَا
+002_right.png	confidence=0.484	source=gemini	مِنْ مَدْحِ مَنْ فِي الرَّعِيلِ يَرْكَبُ
+002_left.png	confidence=0.629	source=paddle	من نَسيِه والَين ِهم يرَْبُ
+003_right.png	confidence=0.598	source=paddle	يَقولُ مِن َشِرْي حفظاَ لهُم
+003_left.png	confidence=0.542	source=gemini	لِسَائِلِ عَنْ أَحَدٍ مِنْهُمْ، وَهُمْ:
+004_right.png	confidence=0.623	source=paddle	مسَغد الغَشِيرَ أَُودذُ اليمَنِ
+004_left.png	confidence=0.640	source=paddle	وَرَنَ، أَفْلُأوِيْس الْقَِى
+005_right.png	confidence=0.573	source=paddle	أبْلَى بَلاءَ حَنا معَ علِى
+005_left.png	confidence=0.496	source=gemini	في مِئَةٍ كَمْلَتْ لَهُ أَوْلِيْ
+006_right.png	confidence=0.711	source=paddle	عَلى المَات بَايعَتَ وَأمَرَا
+006_left.png	confidence=0.697	source=paddle	بيَا عُمَرَأَن يَسْتَغفِرَا
+007_right.png	confidence=0.741	source=paddle	لة إذا وجَدهُ وأخبرَة
+007_left.png	confidence=0.651	source=paddle	وَضَح ِيهِ وِيِ أَْصَرَة
+008_right.png	confidence=0.693	source=paddle	وِرة لأمَْهِ مَةُ
+008_left.png	confidence=0.676	source=paddle	مِن صَُحَقَ إذُلََالُ مَعَةُ
+009_right.png	confidence=0.708	source=paddle	وَِهَم ابنُ يامِربْنُ أَمََة
+009_left.png	confidence=0.648	source=paddle	لابْن المغِيرَِ وأَهْلَكَ الأمَة،
+010_right.png	confidence=0.574	source=paddle	وهَِ مُمية، لحبِيثَ عَمُْ
+010_left.png	confidence=0.636	source=paddle	أوْلَوَلَة وَكَانَتَ فِهْرُ
+011_right.png	confidence=0.751	source=paddle	تَهِينُ آلَيامسِر والمضْطفَى
+011_left.png	confidence=0.723	source=paddle	عدُهَُم إِذَ عَيْهم وَا
+012_right.png	confidence=0.623	source=paddle	بِان موْعْدَهُم الجىانُ
+012_left.png	confidence=0.725	source=paddle	أن يَْبرُوا قَغْذَُبَ الْهَوَانُ
+013_right.png	confidence=0.671	source=paddle	وي أبِي القفطانِ عَمُْار نَْلُ
+013_left.png	confidence=0.561	source=paddle	ل
+014_right.png	confidence=0.588	source=paddle	مَن َْالَة بَغياَ عَيْهِ وقَفَا
+014_left.png	confidence=0.727	source=paddle	حَْدَرَةُ وسَرة أن عَرَا
+015_right.png	confidence=0.514	source=gemini	أَنۡ لَیۡسَ بَاغِیَاࣲ وَكَانَ خَرۡزَةً
+015_left.png	confidence=0.658	source=paddle	بُ حذيفَةَ وطَة صَْدْرَةُ
+016_right.png	confidence=0.690	source=paddle	مِن سَفد الخِي الاشعَُ الأبي
+016_left.png	confidence=0.676	source=paddle	شُو زَيْدُ رَهْطُ مَغْدِ كَرَبِ

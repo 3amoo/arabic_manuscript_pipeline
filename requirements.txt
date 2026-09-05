@@ -1,0 +1,16 @@
+pymupdf>=1.24.0
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+pyyaml>=6.0
+Pillow>=10.0.0
+paddlepaddle-gpu
+paddleocr
+python-dotenv>=1.0.0
+
+# Optional: only needed if settings.yaml's layout_detection.line_detector
+# is set to "surya". Pulls in torch - installs surya's DetectionPredictor
+# (pure torch line detector), NOT the newer VLM-based LayoutPredictor
+# (which additionally needs vllm or llama.cpp - not required here since
+# surya_line_detector.py only uses DetectionPredictor). See
+# surya_line_detector.py's module docstring for why.
+# surya-ocr>=0.22.0
