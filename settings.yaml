@@ -147,6 +147,16 @@ vision_fallback:
       model: claude-sonnet-5
       api_key_env: ANTHROPIC_API_KEY
 
+# محلل صرفي محلي (CAMeL Tools) - أول لبنة من بند "Token-level
+# verification" في الـ Backlog. مش جزء من main.py pipeline نفسه؛
+# بيتقرا بواسطة flag_suspicious_words.py بس (سكريبت مراجعة مستقل،
+# نفس شكل review_manuscript.py) بعد ما main.py يخلص. التثبيت:
+#   pip install camel-tools --break-system-packages
+#   camel_data -i morphology-db-msa-r13
+token_verification:
+  db_name: calima-msa-r13
+  max_candidates: 5
+
 text_correction:
   enabled: true
   rotation_order: [gemini, groq]

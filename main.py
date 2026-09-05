@@ -246,6 +246,7 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_det
                         "paddle_confidence": paddle_confidence,
                         "escalated_text": right_result["text"],
                         "source": escalated["source"],
+                        "repeated_verbatim": escalated.get("repeated_verbatim", False),
                     })
 
             if vision_engine and vision_engine.should_escalate(left_result["confidence"]):
@@ -264,6 +265,7 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_det
                         "paddle_confidence": paddle_confidence,
                         "escalated_text": left_result["text"],
                         "source": escalated["source"],
+                        "repeated_verbatim": escalated.get("repeated_verbatim", False),
                     })
 
             # Same noise filter applied in extract_prose_region() - this
@@ -303,6 +305,7 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_det
                         "paddle_confidence": paddle_confidence,
                         "escalated_text": line_result["text"],
                         "source": escalated["source"],
+                        "repeated_verbatim": escalated.get("repeated_verbatim", False),
                     })
 
             if line_result["text"] and not line_result.get("likely_noise"):

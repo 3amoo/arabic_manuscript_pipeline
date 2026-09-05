@@ -162,10 +162,21 @@ def _looks_like_refusal(text: str) -> bool:
 
 
 def _looks_like_plausible_arabic(text: str) -> bool:
+    """
+    BUG FIX - same root cause and same fix as vision_fallback.py's
+    identical function (see that file's docstring for the real
+    escalations.jsonl example that exposed this: a short, all-Latin
+    response passed validation unconditionally because the ratio check
+    was skipped entirely below MIN_ARABIC_LETTER_RATIO_MIN_LETTERS, with
+    no lower floor at all). A short response now still skips the strict
+    ratio, but must contain at least one Arabic letter.
+    """
     letters = _LETTER_RE.findall(text)
-    if len(letters) < MIN_ARABIC_LETTER_RATIO_MIN_LETTERS:
-        return True
+    if not letters:
+        return False
     arabic_letters = sum(1 for ch in letters if _ARABIC_CHAR_RE.match(ch))
+    if len(letters) < MIN_ARABIC_LETTER_RATIO_MIN_LETTERS:
+        return arabic_letters > 0
     return (arabic_letters / len(letters)) >= MIN_ARABIC_LETTER_RATIO
 
 

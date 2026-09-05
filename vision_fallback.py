@@ -268,10 +268,26 @@ def _looks_like_illegible_marker(text: str) -> bool:
 
 
 def _looks_like_plausible_arabic(text: str) -> bool:
+    """
+    BUG FIX (found via real escalations.jsonl data, page 26 of a real
+    run): this used to return True unconditionally for any response
+    shorter than MIN_ARABIC_LETTER_RATIO_MIN_LETTERS letters, with no
+    floor at all - so a short, all-Latin response (e.g. groq returning
+    "ILLEG", apparently a truncated echo of the ILLEGIBLE marker the
+    prompt asks for) passed validation untouched and was written
+    straight into full_manuscript.txt as if it were a real
+    transcription. The ratio check is still skipped for short responses
+    (too few letters for a percentage to mean anything), but a short
+    response with ZERO Arabic letters is now always rejected - it can
+    never be a plausible transcription of an Arabic manuscript line
+    regardless of length.
+    """
     letters = _LETTER_RE.findall(text)
-    if len(letters) < MIN_ARABIC_LETTER_RATIO_MIN_LETTERS:
-        return True
+    if not letters:
+        return False
     arabic_letters = sum(1 for ch in letters if _ARABIC_CHAR_RE.match(ch))
+    if len(letters) < MIN_ARABIC_LETTER_RATIO_MIN_LETTERS:
+        return arabic_letters > 0
     return (arabic_letters / len(letters)) >= MIN_ARABIC_LETTER_RATIO
 
 
@@ -633,6 +649,19 @@ class VisionFallbackEngine:
         self._budget_exhausted_logged = False
         self._rotation_pointer = 0
 
+        # Tracks how many times each exact escalated text has already
+        # been returned this run (normalized: stripped only). A vision
+        # backend confidently returning the SAME phrase verbatim across
+        # unrelated crops is a much stronger hallucination signal than
+        # any single response shows alone - found in practice
+        # (escalations.jsonl, pages 24-26 of a real run): the same
+        # phrase kept appearing on crops PaddleOCR read as pure noise
+        # ('w', 'ww', 'ـــ') on pages with otherwise dense real content
+        # (so "the crop was genuinely blank" doesn't explain it either).
+        # See CHANGELOG.md for the full investigation.
+        self._seen_escalated_texts: Dict[str, int] = {}
+        self._repeated_escalation_count = 0
+
         self._slots: List[_BackendSlot] = []
 
         if self.enabled:
@@ -786,9 +815,31 @@ class VisionFallbackEngine:
             text = self._attempt_on_slot(slot, image)
             if text:
                 self._rotation_pointer = (idx + 1) % n
-                return {"text": text, "source": slot.name}
 
-        return {"text": fallback_text, "source": "paddle"}
+                normalized = text.strip()
+                seen_before = self._seen_escalated_texts.get(normalized, 0)
+                self._seen_escalated_texts[normalized] = seen_before + 1
+                is_repeated = seen_before > 0
+                if is_repeated:
+                    self._repeated_escalation_count += 1
+                    logger.warning(
+                        f"Vision backend '{slot.name}' returned a "
+                        f"transcription that EXACTLY matches a previous "
+                        f"escalation this run ({seen_before + 1} time(s) "
+                        f"total) - flagging as 'repeated_verbatim' in the "
+                        f"review log for manual checking (often means the "
+                        f"crop was near-empty/garbled and the model "
+                        f"guessed a generic phrase instead of "
+                        f"transcribing what's actually there)."
+                    )
+
+                return {
+                    "text": text,
+                    "source": slot.name,
+                    "repeated_verbatim": is_repeated,
+                }
+
+        return {"text": fallback_text, "source": "paddle", "repeated_verbatim": False}
 
     def summary(self) -> str:
         if not self._slots:
@@ -803,6 +854,8 @@ class VisionFallbackEngine:
         return (
             f"vision fallback: {total_escalated} line(s) escalated "
             f"successfully across backends ({per_backend}); "
+            f"{self._repeated_escalation_count} flagged as repeated-verbatim "
+            f"(possible hallucination - check review/escalations.jsonl); "
             f"{self._calls_made}/{self.max_calls or '∞'} total calls used "
             f"(shared budget)"
         )
