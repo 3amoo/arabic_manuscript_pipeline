@@ -583,14 +583,65 @@ class GitHubModelsVisionBackend(VisionBackend):
         # null-content failure mode is possible here too, same fix applies.
         return _extract_openai_compatible_text(response, self.name)
 
+class SovereignVisionBackend(VisionBackend):
+    """
+    SovereignEG (sovereigneg.com) - بوابة استضافة AI موجهة لمصر/الشرق
+    الأوسط، متوافقة تمامًا مع OpenAI SDK (base_url + api_key بس، زي
+    OpenRouter/GitHub Models بالظبط). الفوترة بالجنيه المصري.
+
+    الكتالوج عندهم كبير (150+ موديل) ومتغير، فمفيش موديل افتراضي هنا -
+    نفس منطق OpenRouterVisionBackend بالظبط: لازم تحدد
+    backends.sovereign.model في settings.yaml بنفسك من الكتالوج الحالي
+    عندهم (dashboard.sovereigneg.com)، والموديل المختار لازم يدعم
+    الصور (Vision/Multimodal) - مش كل الموديلات في كتالوجهم كذلك.
+    """
+
+    name = "sovereign"
+
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
+        if not model:
+            raise ValueError(
+                "SovereignVisionBackend requires an explicit model name - "
+                "set backends.sovereign.model in settings.yaml (تأكد إن "
+                "الموديل المختار بيدعم الصور من كتالوجهم قبل ما تحطه)."
+            )
+        from openai import OpenAI  # pip install openai --break-system-packages
+        self.client = OpenAI(api_key=api_key, base_url="https://backend.sovereigneg.com/v1")
+        self.model = model
+
+    def transcribe(self, image: np.ndarray) -> str:
+        b64 = base64.standard_b64encode(_encode_png(image)).decode("utf-8")
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": PROMPT},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{b64}"},
+                    },
+                ],
+            }],
+            max_tokens=200,
+        )
+        # نفس شكل رد OpenRouter/Groq/GitHub Models تمامًا (OpenAI-compatible) -
+        # فنفس دالة الاستخراج الآمنة من None تنطبق هنا بالظبط.
+        return _extract_openai_compatible_text(response, self.name)
+
 
 BACKEND_REGISTRY = {
     "claude": ClaudeVisionBackend,
     "gemini": GeminiVisionBackend,
+    "gemini_2": GeminiVisionBackend,
     "groq": GroqVisionBackend,
+    "groq_2": GroqVisionBackend,
     "openrouter": OpenRouterVisionBackend,
     "cohere": CohereVisionBackend,
     "github_models": GitHubModelsVisionBackend,
+    "sovereign": SovereignVisionBackend,
+    "sovereign_2": SovereignVisionBackend,
 }
 
 

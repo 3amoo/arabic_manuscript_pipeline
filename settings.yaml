@@ -13,6 +13,23 @@ input:
   - ".png"
   - ".tiff"
   - ".tif"
+  # Per-page check (pdf_text_extractor.py): if a PDF page already has a
+  # usable embedded text layer (digitally-typeset page, or a prior OCR
+  # pass with a correct ToUnicode map), main.py skips preprocessing +
+  # layout detection + OCR entirely for that page and uses the embedded
+  # text as-is - faster and no risk of new OCR errors on a page that
+  # never needed OCR. Purely a per-page decision: a PDF that mixes a
+  # typeset preface with a scanned manuscript body gets the fast path
+  # only for the pages that actually qualify, no manual page-range
+  # config needed. The usability check itself is deliberately
+  # conservative (see pdf_text_extractor.py) - a broken/missing
+  # ToUnicode CMap (common in scanned Arabic manuscript PDFs) is
+  # rejected and that page falls back to the normal OCR path exactly as
+  # before. Set enabled: false to force every PDF page through OCR
+  # regardless (e.g. if you've confirmed a manuscript's embedded text
+  # layer is garbage that somehow still passes the check).
+  direct_text_extraction:
+    enabled: true
 
 # PDF Processing
 pdf:
@@ -58,6 +75,25 @@ ocr:
   # OCREngine.extract() directly (e.g. a future whole-page fallback
   # path), but changing it has NO effect on a normal main.py run.
   text_det_limit_side_len: 1536
+  # How many already-cropped line images main.py's extract_poetry_region()
+  # / extract_prose_region() group into ONE PaddleOCR predict() call via
+  # extract_segments_batch() (see ocr_engine.py's docstring), instead of
+  # one predict() call per line. 16 is a conservative default for a small
+  # (4GB) GPU like a GTX 1650 - raise it if VRAM headroom allows (fewer,
+  # bigger calls = less per-call overhead), or lower it if a run OOMs on
+  # pages with unusually wide verse-line crops.
+  segment_batch_size: 16
+  # SQLite result cache (ocr_cache.py) - a hash of each cropped line image
+  # (plus the recognition model name above) is looked up before running
+  # PaddleOCR on it. A hit reuses the exact prior result with no GPU call
+  # at all, so a repeated/resumed run over pages already OCR'd once is
+  # much cheaper. Safe by construction: recognition is deterministic for
+  # a fixed model, and changing text_recognition_model_name automatically
+  # starts a disjoint set of cache entries (see ocr_cache.py's module
+  # docstring) rather than ever serving a stale result from an old model.
+  caching:
+    enabled: true
+    db_path: "output/.cache/ocr_cache.sqlite3"
 
 analysis:
   llm_provider: "gemini"
@@ -89,73 +125,44 @@ logging:
 
 vision_fallback:
   enabled: true
-  # الترتيب ده بيحدد بس مين يبدأ الدوران - بعد أول سطر ناجح، الـ pointer
-  # بيتحرك للـ backend اللي بعده تلقائي (round-robin حقيقي)، مش "استخدم
-  # الأول اللي يشتغل دايمًا". لو backend وقع (quota/خطأ دائم) بيتشال من
-  # الدوران للـ run ده وبس، من غير ما يوقف الباقي.
-  #
-  # 'claude' removed: no working API key / credit balance too low (seen
-  # in p20_30.txt run log - dies immediately every run). Add it back
-  # once the account has credit.
-  # 'cohere' removed: c4ai-aya-vision-32b reliably 422s on every single
-  # call with this pipeline's request shape (see CohereVisionBackend's
-  # docstring in vision_fallback.py) - zero successes across an entire
-  # test run, just wasted retry time. Add it back once the correct
-  # request format is confirmed.
   rotation_order:
   - gemini
+  - gemini_2
   - groq
+  - groq_2
+  - sovereign
+  - sovereign_2
   - openrouter
   confidence_threshold: 0.55
-  # 3000 was sized for a worst-case "every line escalates" scenario
-  # across the whole ~113-page manuscript. With 'claude'/'cohere' out of
-  # rotation and gemini/openrouter's model names fixed, the live
-  # backends should succeed far more often, so this budget should last
-  # noticeably longer in practice than it did in the p20_30.txt run.
   max_calls: 3000
   backends:
     gemini:
-      # gemini-2.5-flash was retired by Google mid-project (confirmed via
-      # a real 404 in p20_30.txt: "no longer available to new users...
-      # use models/gemini-3.6-flash"). Updated to the name Google's own
-      # error pointed to.
       model: gemini-3.6-flash
-      api_key_env: GEMINI_API_KEY
+      api_key_env: GEMINI_API_KEY1
+    gemini_2:
+      model: gemini-3.6-flash
+      api_key_env: GEMINI_API_KEY2
     groq:
       model: qwen/qwen3.6-27b
-      api_key_env: GROQ_API_KEY
+      api_key_env: GROQ_API_KEY1
+    groq_2:
+      model: qwen/qwen3.6-27b
+      api_key_env: GROQ_API_KEY2
     openrouter:
-      # amazon/nova-2-lite-v1 was dropped: it returned empty/None
-      # message.content on nearly every call in the p20_30.txt run
-      # (a request-shape/model incompatibility, not a quota issue - see
-      # vision_fallback.py's _extract_openai_compatible_text()).
-      # qwen/qwen2.5-vl-72b-instruct is the current pick from a fresh
-      # OpenRouter vision-model check; re-run sync_vision_backends.py
-      # periodically since this catalog changes often.
       model: qwen/qwen2.5-vl-72b-instruct
       api_key_env: OPENROUTER_API_KEY
+    sovereign:
+      model: claude-sonnet-5
+      api_key_env: SOVEREIGN_API_KEY1
+    sovereign_2:
+      model: claude-sonnet-5
+      api_key_env: SOVEREIGN_API_KEY2
     cohere:
-      # Kept here (config only) even though 'cohere' is out of
-      # rotation_order above, so re-adding it later is a one-line change
-      # once the request-format issue is confirmed fixed.
       model: c4ai-aya-vision-32b
       api_key_env: COHERE_API_KEY
     claude:
-      # Kept here (config only) even though 'claude' is out of
-      # rotation_order above - add the name back to rotation_order once
-      # the Anthropic account has credit again.
       model: claude-sonnet-5
       api_key_env: ANTHROPIC_API_KEY
-
-# محلل صرفي محلي (CAMeL Tools) - أول لبنة من بند "Token-level
-# verification" في الـ Backlog. مش جزء من main.py pipeline نفسه؛
-# بيتقرا بواسطة flag_suspicious_words.py بس (سكريبت مراجعة مستقل،
-# نفس شكل review_manuscript.py) بعد ما main.py يخلص. التثبيت:
-#   pip install camel-tools --break-system-packages
-#   camel_data -i morphology-db-msa-r13
-token_verification:
-  db_name: calima-msa-r13
-  max_candidates: 5
 
 text_correction:
   enabled: true
@@ -164,15 +171,7 @@ text_correction:
   backends:
     gemini:
       model: gemini-flash-lite-latest
-      api_key_env: GEMINI_API_KEY
+      api_key_env: GEMINI_API_KEY1
     groq:
-      # llama-3.1-70b-versatile is very likely retired/renamed by now
-      # (Groq has already decommissioned other models mid-project - see
-      # vision_fallback.py's GroqVisionBackend comment). This is a
-      # TEXT-only model so sync_vision_backends.py's vision-capability
-      # filtering does not apply to it directly; confirm the current
-      # name manually against https://console.groq.com/docs/models (or
-      # extend sync_vision_backends.py with a text-model discovery mode)
-      # before relying on review_manuscript.py for a full-book run.
       model: llama-3.3-70b-versatile
-      api_key_env: GROQ_API_KEY
+      api_key_env: GROQ_API_KEY1
