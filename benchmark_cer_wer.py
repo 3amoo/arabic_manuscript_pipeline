@@ -5,11 +5,15 @@ CER/WER Benchmarking Tool
 Measures Character Error Rate (CER) and Word Error Rate (WER) between
 ground truth reference and OCR pipeline output using jiwer library.
 
-Phase 3: Implementation begins with CLI argument parsing (T013)
+Version: 0.2.0
 """
 
+__version__ = "0.2.0"
+
 import argparse
+import re
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -37,6 +41,33 @@ ERROR_MESSAGES = {
 }
 
 
+class ArabicWordSplitTransform:
+    """Custom transform that splits Arabic text on all whitespace, not just spaces.
+    
+    Default jiwer ReduceToListOfListOfWords() uses .split(" ") which only splits
+    on spaces, not tabs or newlines. This causes Arabic text with verse separators
+    to be treated as single long words, distorting WER calculations.
+    """
+
+    def __call__(self, text):
+        if isinstance(text, str):
+            return self.process_string(text)
+        elif isinstance(text, list):
+            return self.process_list(text)
+        return text
+
+    def process_string(self, s: str):
+        words = re.split(r'\s+', s)
+        return [[w for w in words if w]]
+
+    def process_list(self, inp: list):
+        result = []
+        for s in inp:
+            words = re.split(r'\s+', s)
+            result.append([w for w in words if w])
+        return result
+
+
 class TextProcessor:
     """
     Extracts textual content from files by removing structural elements 
@@ -62,10 +93,10 @@ class TextProcessor:
     def load_file(self) -> str:
         """
         Reads file with UTF-8 encoding, handles fallback if needed.
-        
+
         Returns:
             Raw file content as string
-            
+
         Raises:
             FileNotFoundError: If file does not exist
             PermissionError: If file is not readable
@@ -77,6 +108,12 @@ class TextProcessor:
                 return self.content
         except UnicodeDecodeError:
             # Fallback to latin-1 (iso-8859-1) for compatibility
+            import warnings
+            warnings.warn(
+                f"Invalid UTF-8 encoding in {self.file_path}, trying fallback to latin-1",
+                UserWarning,
+                stacklevel=2,
+            )
             with open(self.file_path, 'r', encoding='latin-1') as f:
                 self.content = f.read()
                 return self.content
@@ -119,10 +156,7 @@ class TextProcessor:
         
         lines = self.content.splitlines()
         cleaned_lines = []
-        
-        # Patterns are defined at module level
-        import re
-        
+
         for line in lines:
             # Skip empty lines (verse separators)
             if re.match(EMPTY_LINE_PATTERN, line):
@@ -146,7 +180,24 @@ class TextProcessor:
         Returns:
             Cleaned pipeline output text as single string with newline-separated content
         """
-        pass  # Implementation in Phase 3
+        if not self.content:
+            self.load_file()
+        
+        lines = self.content.splitlines()
+        cleaned_lines = []
+        
+        for line in lines:
+            # Skip empty lines
+            if re.match(EMPTY_LINE_PATTERN, line):
+                continue
+            
+            # Remove page separator if present
+            cleaned_line = line.replace(PAGE_SEPARATOR_PATTERN, '')
+            # Skip lines that were only a page separator (now empty)
+            if cleaned_line.strip():
+                cleaned_lines.append(cleaned_line)
+        
+        return TEXT_CONCATENATION_SEPARATOR.join(cleaned_lines)
 
 
 class CERWERCalculator:
@@ -186,7 +237,22 @@ class CERWERCalculator:
             ImportError: If jiwer is not available
             ValueError: If texts are empty or invalid
         """
-        pass  # Implementation in Phase 3
+        try:
+            import jiwer
+        except ImportError:
+            raise ImportError(ERROR_MESSAGES["jiwer_missing"])
+        
+        if not self.validate_inputs():
+            raise ValueError(ERROR_MESSAGES["calculation_error"])
+        
+        cer_transform = jiwer.Compose([jiwer.ReduceToListOfListOfChars()])
+        self.cer = jiwer.cer(
+            self.ground_truth_text,
+            self.pipeline_text,
+            reference_transform=cer_transform,
+            hypothesis_transform=cer_transform
+        )
+        return self.cer
     
     def calculate_wer(self) -> float:
         """
@@ -198,7 +264,22 @@ class CERWERCalculator:
         Returns:
             Word Error Rate as float (0.0-1.0)
         """
-        pass  # Implementation in Phase 3
+        try:
+            import jiwer
+        except ImportError:
+            raise ImportError(ERROR_MESSAGES["jiwer_missing"])
+        
+        if not self.validate_inputs():
+            raise ValueError(ERROR_MESSAGES["calculation_error"])
+        
+        wer_transform = jiwer.Compose([ArabicWordSplitTransform()])
+        self.wer = jiwer.wer(
+            self.ground_truth_text,
+            self.pipeline_text,
+            reference_transform=wer_transform,
+            hypothesis_transform=wer_transform
+        )
+        return self.wer
     
     def count_characters(self) -> dict:
         """
@@ -211,7 +292,11 @@ class CERWERCalculator:
                 'pipeline_output': int
             }
         """
-        pass  # Implementation in Phase 3
+        self.char_counts = {
+            'ground_truth': len(self.ground_truth_text),
+            'pipeline_output': len(self.pipeline_text)
+        }
+        return self.char_counts
     
     def extract_word_counts(self) -> dict:
         """
@@ -227,7 +312,24 @@ class CERWERCalculator:
                 'pipeline_output': int
             }
         """
-        pass  # Implementation in Phase 3
+        try:
+            import jiwer
+        except ImportError:
+            raise ImportError(ERROR_MESSAGES["jiwer_missing"])
+        
+        wer_transform = jiwer.Compose([ArabicWordSplitTransform()])
+        result = jiwer.process_words(
+            self.ground_truth_text,
+            self.pipeline_text,
+            reference_transform=wer_transform,
+            hypothesis_transform=wer_transform
+        )
+        
+        self.word_counts = {
+            'ground_truth': len(result.references[0]) if result.references else 0,
+            'pipeline_output': len(result.hypotheses[0]) if result.hypotheses else 0
+        }
+        return self.word_counts
     
     def validate_inputs(self) -> bool:
         """
@@ -240,7 +342,15 @@ class CERWERCalculator:
         Returns:
             True if inputs are valid, False otherwise
         """
-        pass  # Implementation in Phase 3
+        if not isinstance(self.ground_truth_text, str) or not self.ground_truth_text:
+            return False
+        if not isinstance(self.pipeline_text, str) or not self.pipeline_text:
+            return False
+        try:
+            import jiwer
+        except ImportError:
+            return False
+        return True
 
 
 class BenchmarkReport:
@@ -279,7 +389,45 @@ class BenchmarkReport:
         Returns:
             Formatted report as string
         """
-        pass  # Implementation in Phase 3
+        cer_pct = self.metrics.get('cer', 0.0) * 100
+        wer_pct = self.metrics.get('wer', 0.0) * 100
+        gt_chars = self.metrics.get('gt_chars', 0)
+        hyp_chars = self.metrics.get('hyp_chars', 0)
+        gt_words = self.metrics.get('gt_words', 0)
+        hyp_words = self.metrics.get('hyp_words', 0)
+
+        gt_path = self.input_paths.get('ground_truth', 'N/A')
+        hyp_path = self.input_paths.get('pipeline_output', 'N/A')
+
+        lines = [
+            f"CER/WER Benchmark Report (v{__version__})",
+            "=" * 40,
+            "",
+            "Input Files:",
+            f"  Ground Truth: {gt_path}",
+            f"  Pipeline Output: {hyp_path}",
+            "",
+            "Text Statistics:",
+            f"  Ground Truth: {gt_chars:,} characters, {gt_words:,} words",
+            f"  Pipeline Output: {hyp_chars:,} characters, {hyp_words:,} words",
+            "",
+            "Benchmark Results:",
+            f"  Character Error Rate (CER): {cer_pct:.2f}%",
+            f"  Word Error Rate (WER): {wer_pct:.2f}%",
+        ]
+
+        if self.warnings:
+            lines.append("")
+            lines.append("Warnings:")
+            for w in self.warnings:
+                lines.append(f"  {w}")
+
+        self.timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        lines.append("")
+        lines.append(f"Report generated: {self.timestamp}")
+
+        self.report_text = "\n".join(lines)
+        return self.report_text
     
     def add_warning(self, message: str) -> None:
         """
@@ -288,7 +436,7 @@ class BenchmarkReport:
         Args:
             message: Warning message to add
         """
-        pass  # Implementation in Phase 3
+        self.warnings.append(message)
     
     def check_length_discrepancy(self, threshold: float = 0.2) -> bool:
         """
@@ -300,7 +448,18 @@ class BenchmarkReport:
         Returns:
             True if discrepancy exceeds threshold, False otherwise
         """
-        pass  # Implementation in Phase 3
+        gt_chars = self.metrics.get('gt_chars', 0)
+        hyp_chars = self.metrics.get('hyp_chars', 0)
+        
+        if gt_chars == 0 and hyp_chars == 0:
+            return False
+        
+        max_len = max(gt_chars, hyp_chars)
+        if max_len == 0:
+            return False
+        
+        diff = abs(gt_chars - hyp_chars) / max_len
+        return diff > threshold
     
     def to_file(self, path: Path) -> None:
         """
@@ -309,82 +468,97 @@ class BenchmarkReport:
         Args:
             path: Path where to write the report
         """
-        pass  # Implementation in Phase 3
+        if not self.report_text:
+            self.generate_report()
+        
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(self.report_text + "\n")
     
     def to_stdout(self) -> None:
         """
         Prints report to console.
         """
-        pass  # Implementation in Phase 3
+        if not self.report_text:
+            self.generate_report()
+        
+        print(self.report_text)
 
 
 def parse_arguments():
     """
     Parse command-line arguments according to contracts/cli.md:6.
-    
+
     Returns:
         argparse.Namespace with parsed arguments
     """
     parser = argparse.ArgumentParser(
+        prog="benchmark_cer_wer.py",
         description="Calculate Character Error Rate (CER) and Word Error Rate (WER) between clean ground truth and OCR pipeline output.",
-        add_help=False
+        epilog=(
+            "Examples:\n"
+            "  benchmark_cer_wer.py manuscript.clean.md output/full_manuscript.txt\n"
+            "  benchmark_cer_wer.py gt.txt pipeline.txt --output report.txt"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    
+
     parser.add_argument(
         "ground_truth_path",
         type=Path,
-        help="Path to clean ground truth file (e.g., عمود_النسب.clean.md)"
+        help="Path to clean ground truth file (e.g., عمود_النسب.clean.md)",
     )
-    
+
     parser.add_argument(
-        "pipeline_output_path", 
+        "pipeline_output_path",
         type=Path,
-        help="Path to pipeline output file (e.g., output/عمود النسب نسخة 2/full_manuscript.txt)"
+        help="Path to pipeline output file (e.g., output/عمود النسب نسخة 2/full_manuscript.txt)",
     )
-    
+
     parser.add_argument(
         "--output", "-o",
         type=Path,
-        help="Write detailed report to file (optional)"
+        help="Write detailed report to file (optional)",
     )
-    
-    parser.add_argument(
-        "--help", "-h",
-        action="help",
-        help="Display this help message and exit"
-    )
-    
+
     return parser.parse_args()
 
 
 def validate_arguments(args):
     """
     Validate CLI arguments per contracts/cli.md:154.
-    
+
     Args:
         args: Parsed arguments from parse_arguments()
-        
+
     Returns:
         tuple of (is_valid, error_message, exit_code)
     """
-    # Check required arguments are provided (should always be true with positional args)
+    # Check required arguments are provided (positional args always present,
+    # but guard against None if argparse ever changes)
     if not args.ground_truth_path or not args.pipeline_output_path:
-        return False, "Missing required arguments", 2
-    
+        return False, "Missing required arguments. Usage: benchmark_cer_wer.py <ground_truth> <pipeline_output>", 2
+
     # Check file existence
     if not args.ground_truth_path.exists():
         return False, ERROR_MESSAGES["file_not_found"].format(path=args.ground_truth_path), 1
-    
+
     if not args.pipeline_output_path.exists():
         return False, ERROR_MESSAGES["file_not_found"].format(path=args.pipeline_output_path), 1
-    
+
+    # Reject directories (must be regular files)
+    if args.ground_truth_path.is_dir():
+        return False, ERROR_MESSAGES["file_not_found"].format(path=f"{args.ground_truth_path} (is a directory, not a file)"), 1
+
+    if args.pipeline_output_path.is_dir():
+        return False, ERROR_MESSAGES["file_not_found"].format(path=f"{args.pipeline_output_path} (is a directory, not a file)"), 1
+
     # Check file readability (basic check)
     try:
         args.ground_truth_path.resolve()
         args.pipeline_output_path.resolve()
     except (PermissionError, OSError) as e:
         return False, ERROR_MESSAGES["file_not_readable"].format(path=e.filename if hasattr(e, 'filename') else 'unknown'), 1
-    
+
     return True, "", 0
 
 
@@ -399,13 +573,74 @@ def main():
             print(error_msg, file=sys.stderr)
             sys.exit(exit_code)
         
-        # For now, just print what we would process (implementation in later tasks)
-        print(f"Ground truth: {args.ground_truth_path}")
-        print(f"Pipeline output: {args.pipeline_output_path}")
-        if args.output:
-            print(f"Report output: {args.output}")
+        # Check jiwer availability
+        try:
+            import jiwer
+        except ImportError:
+            print(ERROR_MESSAGES["jiwer_missing"], file=sys.stderr)
+            sys.exit(1)
         
-        print("\nNote: File processing and CER/WER calculations will be implemented in subsequent tasks.")
+        # Process ground truth
+        gt_processor = TextProcessor(args.ground_truth_path, "ground_truth")
+        gt_processor.load_file()
+        gt_text = gt_processor.extract_text()
+        if not gt_text:
+            print(ERROR_MESSAGES["empty_text"].format(file="Ground truth"), file=sys.stderr)
+        
+        # Process pipeline output
+        hyp_processor = TextProcessor(args.pipeline_output_path, "pipeline_output")
+        hyp_processor.load_file()
+        hyp_text = hyp_processor.extract_text()
+        if not hyp_text:
+            print(ERROR_MESSAGES["empty_text"].format(file="Pipeline output"), file=sys.stderr)
+        
+        if not gt_text or not hyp_text:
+            sys.exit(1)
+        
+        # Calculate metrics
+        calculator = CERWERCalculator(gt_text, hyp_text)
+        cer = calculator.calculate_cer()
+        wer = calculator.calculate_wer()
+        char_counts = calculator.count_characters()
+        word_counts = calculator.extract_word_counts()
+        
+        # Build metrics dict for report
+        metrics = {
+            'cer': cer,
+            'wer': wer,
+            'gt_chars': char_counts['ground_truth'],
+            'hyp_chars': char_counts['pipeline_output'],
+            'gt_words': word_counts['ground_truth'],
+            'hyp_words': word_counts['pipeline_output'],
+        }
+        
+        input_paths = {
+            'ground_truth': str(args.ground_truth_path),
+            'pipeline_output': str(args.pipeline_output_path),
+        }
+        
+        # Generate report
+        report = BenchmarkReport(metrics, input_paths)
+        
+        # Check for length discrepancy
+        if report.check_length_discrepancy():
+            gt_len = char_counts['ground_truth']
+            hyp_len = char_counts['pipeline_output']
+            if gt_len > 0:
+                pct = abs(gt_len - hyp_len) / max(gt_len, hyp_len) * 100
+                shorter = "pipeline output" if hyp_len < gt_len else "ground truth"
+                report.add_warning(
+                    f"Length discrepancy detected: {shorter} is {pct:.1f}% shorter"
+                )
+        
+        report.generate_report()
+        report.to_stdout()
+        
+        # Write to file if requested
+        if args.output:
+            report.to_file(args.output)
+        
+        sys.exit(0)
         
     except SystemExit:
         raise  # Re-raise argparse's SystemExit for help/version
