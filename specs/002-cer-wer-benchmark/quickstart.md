@@ -26,7 +26,7 @@ python -c "import jiwer; print(f'jiwer version: {jiwer.__version__}')"
 
 ### 3. Required Files
 You need two files for benchmarking:
-- **Clean ground truth**: Output from `clean_ground_truth.py` (e.g., `عمود_النسب.clean.md`)
+- **Clean ground truth**: Output from `clean_ground_truth.py` (e.g., `ground_truth/عمود النسب/عمود_النسب.clean.md`)
 - **Pipeline output**: Full manuscript text from OCR pipeline (e.g., `output/<document>/full_manuscript.txt`)
 
 ## Step 1: Prepare Input Files
@@ -35,7 +35,7 @@ You need two files for benchmarking:
 If you already have a cleaned ground truth file:
 ```bash
 # Verify the file exists and has the correct format
-head -5 عمود_النسب.clean.md
+head -5 ground_truth/عمود النسب/عمود_النسب.clean.md
 ```
 Expected output:
 ```
@@ -48,9 +48,9 @@ Expected output:
 If you need to clean a raw ground truth file:
 ```bash
 # Run the ground truth cleaner (from previous feature)
-python clean_ground_truth.py --source عمود_النسب.md
+python clean_ground_truth.py --source ground_truth/عمود النسب/عمود_النسب.md
 
-# This creates عمود_النسب.clean.md and عمود_النسب.anomalies.txt
+# This creates ground_truth/عمود النسب/عمود_النسب.clean.md and عمود_النسب.anomalies.txt
 ```
 
 ### Option C: Generate Pipeline Output
@@ -66,7 +66,7 @@ python main.py
 
 ### Simple Test (stdout only)
 ```bash
-python benchmark_cer_wer.py عمود_النسب.clean.md "output/عمود النسب نسخة 2/full_manuscript.txt"
+python benchmark_cer_wer.py ground_truth/عمود النسب/عمود_النسب.clean.md "output/عمود النسب نسخة 2/full_manuscript.txt"
 ```
 
 **Expected Output**:
@@ -75,7 +75,7 @@ CER/WER Benchmark Report
 =======================
 
 Input Files:
-  Ground Truth: عمود_النسب.clean.md
+  Ground Truth: ground_truth/عمود النسب/عمود_النسب.clean.md
   Pipeline Output: output/عمود النسب نسخة 2/full_manuscript.txt
 
 Text Statistics:
@@ -95,7 +95,7 @@ Report generated: 2026-09-07 14:30:00
 
 ### Save Detailed Report
 ```bash
-python benchmark_cer_wer.py عمود_النسب.clean.md "output/عمود النسب نسخة 2/full_manuscript.txt" --output benchmark_report.txt
+python benchmark_cer_wer.py ground_truth/عمود النسب/عمود_النسب.clean.md "output/عمود النسب نسخة 2/full_manuscript.txt" --output benchmark_report.txt
 ```
 
 This creates `benchmark_report.txt` with the full report.
@@ -184,7 +184,7 @@ python main.py
 
 # Run benchmark
 python benchmark_cer_wer.py \
-  عمود_النسب.clean.md \
+  ground_truth/عمود النسب/عمود_النسب.clean.md \
   "output/$DOCUMENT/full_manuscript.txt" \
   --output "output/$DOCUMENT/benchmark_report.txt"
 
@@ -275,7 +275,7 @@ diff result1.txt result2.txt  # Should be identical
 Run benchmark on current pipeline to establish baseline metrics:
 ```bash
 python benchmark_cer_wer.py \
-  عمود_النسب.clean.md \
+  ground_truth/عمود النسب/عمود_النسب.clean.md \
   "output/عمود النسب نسخة 2/full_manuscript.txt" \
   --output baseline_metrics.txt
 ```
@@ -285,7 +285,7 @@ After pipeline changes, compare against baseline:
 ```bash
 # New run after improvements
 python benchmark_cer_wer.py \
-  عمود_النسب.clean.md \
+  ground_truth/عمود النسب/عمود_النسب.clean.md \
   "output/عمود النسب نسخة 2/full_manuscript.txt" \
   --output improved_metrics.txt
 

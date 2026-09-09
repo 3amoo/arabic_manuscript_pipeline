@@ -10,19 +10,20 @@ that.
 
 - Python 3.11+ available on `PATH` (this feature adds no new third-party dependency — see
   research.md §2).
-- Repository checked out with the existing `عمود_النسب.md` reference file present at the repo
-  root (already true in this repository today).
+- Repository checked out with the existing `عمود_النسب.md` reference file present at
+  `ground_truth/عمود النسب/` (moved there 2026-09-09).
 - `pytest` installed (`pip install pytest`) if running the automated test suite in addition to the
   manual scenarios below.
 
 ## Scenario 1 — Clean the real primary test manuscript (User Story 1)
 
-**Setup**: none beyond the prerequisites above — `عمود_النسب.md` already exists at the repo root.
+**Setup**: none beyond the prerequisites above — `عمود_النسب.md` already exists at
+`ground_truth/عمود النسب/`.
 
 **Run**:
 
 ```bash
-python clean_ground_truth.py --source "عمود_النسب.md"
+python clean_ground_truth.py --source "ground_truth/عمود النسب/عمود_النسب.md"
 ```
 
 **Expected outcome**:
@@ -33,7 +34,7 @@ python clean_ground_truth.py --source "عمود_النسب.md"
   reference file is 100% structurally consistent per the research performed for this feature).
 - `عمود_النسب.md` (the original) is byte-for-byte unchanged — verify with:
   ```bash
-  git diff --stat -- "عمود_النسب.md"
+  git diff --stat -- "ground_truth/عمود النسب/عمود_النسب.md"
   ```
   (expect no output / no changes reported).
 - Spot-check: open `عمود_النسب.clean.md` and confirm no `[!info]-` or `[!question]-` text

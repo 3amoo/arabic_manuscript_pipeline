@@ -505,7 +505,7 @@ def parse_arguments():
     parser.add_argument(
         "ground_truth_path",
         type=Path,
-        help="Path to clean ground truth file (e.g., عمود_النسب.clean.md)",
+        help="Path to clean ground truth file (e.g., ground_truth/عمود النسب/عمود_النسب.clean.md)",
     )
 
     parser.add_argument(

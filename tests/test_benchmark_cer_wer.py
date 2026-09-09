@@ -338,7 +338,7 @@ def test_t035_integration_full_pipeline_flow(tmp_path):
 
 def test_t037_integration_with_pipeline_output():
     """T037: Tool works with actual pipeline output (output/<doc>/full_manuscript.txt)."""
-    gt_path = Path("عمود_النسب.clean.md")
+    gt_path = Path("ground_truth/عمود النسب/عمود_النسب.clean.md")
     hyp_path = Path("output/عمود النسب نسخة 2/full_manuscript.txt")
 
     if not gt_path.exists() or not hyp_path.exists():
@@ -354,7 +354,7 @@ def test_t037_integration_with_pipeline_output():
 
 def test_t034_quickstart_basic_usage():
     """T034a: Quickstart basic usage example (Step 2) works successfully."""
-    gt_path = Path("عمود_النسب.clean.md")
+    gt_path = Path("ground_truth/عمود النسب/عمود_النسب.clean.md")
     hyp_path = Path("output/عمود النسب نسخة 2/full_manuscript.txt")
 
     if not gt_path.exists() or not hyp_path.exists():
@@ -368,7 +368,7 @@ def test_t034_quickstart_basic_usage():
 
 def test_t034_quickstart_with_output_file(tmp_path):
     """T034b: Quickstart --output flag creates report file."""
-    gt_path = Path("عمود_النسب.clean.md")
+    gt_path = Path("ground_truth/عمود النسب/عمود_النسب.clean.md")
     hyp_path = Path("output/عمود النسب نسخة 2/full_manuscript.txt")
 
     if not gt_path.exists() or not hyp_path.exists():
@@ -397,7 +397,7 @@ def test_t031_error_messages_match_contract():
     assert "File not found" in combined or "not found" in combined.lower()
 
     # Second file missing (gt exists, hyp doesn't)
-    gt_path = Path("عمود_النسب.clean.md")
+    gt_path = Path("ground_truth/عمود النسب/عمود_النسب.clean.md")
     if gt_path.exists():
         stdout, stderr, exit_code = _run_benchmark_with_args(
             str(gt_path), "/also/missing.txt"
@@ -411,7 +411,7 @@ def test_t038_constitution_read_only_no_normalization():
     """T038: Tool is read-only and performs no linguistic normalization (Principles IV, V)."""
     import hashlib
 
-    gt_path = Path("عمود_النسب.clean.md")
+    gt_path = Path("ground_truth/عمود النسب/عمود_النسب.clean.md")
     hyp_path = Path("output/عمود النسب نسخة 2/full_manuscript.txt")
 
     if not gt_path.exists() or not hyp_path.exists():

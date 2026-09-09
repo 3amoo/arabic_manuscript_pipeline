@@ -106,7 +106,7 @@ def test_main_file_integration():
     # This test will verify that the actual file has 620 verses
     # Note: This test doesn't run the actual script, but verifies the structure
     
-    source_path = Path(__file__).parent.parent / "عمود_النسب.md"
+    source_path = Path(__file__).parent.parent / "ground_truth" / "عمود النسب" / "عمود_النسب.md"
     assert source_path.exists(), f"Source file not found: {source_path}"
     
     with open(source_path, 'r', encoding='utf-8') as f:
