@@ -40,30 +40,211 @@ import time
 import logging
 from pathlib import Path
 from datetime import datetime
+from typing import Optional
 from dotenv import load_dotenv
 
-# src/ layout: main.py itself and several modules (preprocessing.py,
-# vision_fallback.py, surya_line_detector.py, ocr_cache.py,
-# pdf_text_extractor.py, text_correction_engine.py, etc.) live at the
-# project root, but input_handler.py, ocr_engine.py, output_generator.py,
-# page_layout_detector.py, and segment_text_rows.py live under src/.
-# Adding src/ to sys.path here (root itself is already on sys.path
-# automatically - Python adds the running script's own directory) means
-# every bare "from X import Y" below resolves regardless of which of the
-# two directories X actually lives in, including cross-imports (e.g.
-# ocr_engine.py, in src/, doing "from ocr_cache import OCRCache", which
-# lives at the root).
-sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
-
+# Flat layout: all pipeline modules live at the project root.
 from input_handler import InputHandler
 from ocr_engine import OCREngine
 from output_generator import OutputGenerator
 from vision_fallback import VisionFallbackEngine
-from preprocessing import preprocess_page
+from preprocessing import preprocess_page, set_binarize_params, reset_binarize_params
 from surya_line_detector import SuryaLineDetector
 
 import page_layout_detector as layout
 import segment_text_rows as rowseg
+
+logger = logging.getLogger(__name__)
+
+
+def _should_escalate_line(vision_engine, paddle_text: str,
+                          paddle_confidence: Optional[float]) -> bool:
+    """
+    Decide whether one line merits a vision-fallback call, given its
+    PaddleOCR text+confidence. Two gates:
+
+      1. _should_escalate() race: normal low-confidence threshold
+         (confidence is None or below vision_fallback.confidence_threshold).
+      2. PLAUSIBLE-TEXT gate (the important one): the crop must
+         actually contain plausible text to recover. A line PaddleOCR
+         read as noise (empty, tatweel-only 'ـــ', stray 'w'/'ww' glyphs,
+         watermark strings - all caught by OCREngine._is_noise_line) is
+         exactly the case where the image has nothing real to transcribe,
+         and the vision models hallucinate fluent classical verse for it
+         instead of reading anything (documented repeatedly in
+         reviews/escalations.jsonl: 'w'/'ww'/'ـــ' crops returning the
+         Imru' al-Qais opening 'وَمَا لِلْعَيْنِ مِنْ دَمْعٍ...' on pages
+         20-27, tracked by repeated_verbatim_tracker.py). Feeding such a
+         crop to vision guarantees nothing but a fluent-looking GUESS, so
+         we skip the call; the (empty) PaddleOCR result then gets
+         blanked by the noise filter as it always has.
+
+    A genuinely garbled but real hemistich keeps at least some Arabic
+    letters even when misrecognized, so it passes gate 2 and is still
+    escalated - the guard only suppresses recover-nothing crops.
+    """
+    if not vision_engine:
+        return False
+    if not vision_engine.should_escalate(paddle_confidence):
+        return False
+    return not OCREngine._is_noise_line(paddle_text)
+
+
+def _is_repeated_verbatim(ocr_text: str, vision_text: str) -> bool:
+    """
+    OCR-echo gate: True when the vision model just parroted the flawed OCR
+    text back (verbatim modulo whitespace) instead of producing a new
+    reading. Such an "escalation" carries no information - the vision
+    backend effectively failed on this crop - so it must not be logged as
+    an accepted improvement (AGENTS.md §4.13: vision output is not
+    authority by itself; a verbatim echo is evidence of no improvement at
+    all). An empty OCR text can never be "repeated" (noise/blank lines
+    are already kept out of the escalation path by
+    _should_escalate_line(), but the check stays defensive).
+    """
+    clean_ocr = ocr_text.strip()
+    clean_vision = vision_text.strip()
+    return bool(clean_ocr and clean_ocr == clean_vision)
+
+
+def _evaluate_escalation(paddle_text: str, paddle_confidence, vision_text: str,
+                         vision_source: str, cross_crop_repeat: bool,
+                         region: str) -> tuple:
+    """
+    Pure §4.13 acceptance decision - no I/O, no engine dependency, so it
+    is unit-tested directly (see tests/test_escalation_policy.py).
+
+    Given the raw OCR evidence for one line/hemistich and the vision
+    backend's answer (already resolved through transcribe()), returns:
+
+        (final_text, escalation_entry_or_None)
+
+    `final_text` stays the raw OCR text unless the vision reading is a
+    GENUINE improvement. `escalation_entry` (a dict ready for
+    output_generator.save_escalations()) is produced for EVERY real
+    vision success (source == a real backend) so the review log shows the
+    rejected attempts too - auditability without corrupting the output.
+
+    Gates, in order (any failure keeps the OCR evidence):
+      1. Vision Success: source == "paddle" means the backend failed and
+         transcribe() already fell back to the OCR text -> no escalation
+         to record at all.
+      2. Cross-crop repeated_verbatim (from repeated_verbatim_tracker.py):
+         the exact same phrase came back for some OTHER crop/run before -
+         a fluent GUESS, not a reading of this crop. Reject + record.
+      3. OCR echo (_is_repeated_verbatim): vision just repeated the OCR
+         text verbatim, i.e. contributed nothing. Reject + record.
+      -> otherwise the vision reading is accepted and its text returned.
+    """
+    if vision_source == "paddle":
+        return paddle_text, None
+
+    entry = {
+        "region": region,
+        "paddle_text": paddle_text,
+        "paddle_confidence": paddle_confidence,
+        "escalated_text": vision_text,
+        "source": vision_source,
+        "repeated_verbatim": cross_crop_repeat,
+    }
+
+    if cross_crop_repeat:
+        entry.update({"accepted": False, "reason": "repeated_verbatim_cross_crop"})
+        return paddle_text, entry
+
+    if _is_repeated_verbatim(paddle_text, vision_text):
+        entry.update({"accepted": False, "reason": "echoed_ocr"})
+        return paddle_text, entry
+
+    entry.update({"accepted": True, "reason": "accepted"})
+    return vision_text, entry
+
+
+def _maybe_escalate_line(vision_engine, result: dict, crop_img, region: str) -> list:
+    """
+    Run one vision-fallback attempt on a line whose OCR confidence is low
+    (_should_escalate_line() already answered True) and apply the §4.13
+    acceptance policy (delegated to the pure _evaluate_escalation()).
+
+    The vision text REPLACES the OCR text in `result` only when
+    _evaluate_escalation() accepts it - i.e. it is a real vision success
+    that is NEITHER a cross-crop repeated_verbatim guess (a phrase a
+    backend already returned verbatim for some OTHER crop, persisted by
+    repeated_verbatim_tracker.py; documented: the Imru' al-Qais opening
+    'وَمَا لِلْعَيْنِ مِنْ دَمْعٍ...' returned on pages 20-27 for crops
+    PaddleOCR read as noise or unrelated garbled Arabic) NOR a verbatim
+    echo of the OCR text. Feeding either back into the manuscript would be
+    exactly the "fluent-sounding-but-wrong" edit §4.13 forbids, so the OCR
+    evidence is kept (and the noise filter then handles whatever the OCR
+    text was).
+
+    Every real vision success is returned as an escalation record
+    (including rejected repeated/echoed ones - the reviewer must SEE
+    them), matching what output_generator.save_escalations() expects.
+    """
+    escalations = []
+    paddle_text = result["text"]
+    paddle_confidence = result["confidence"]
+
+    escalated = vision_engine.transcribe(crop_img, paddle_text)
+
+    final_text, entry = _evaluate_escalation(
+        paddle_text,
+        paddle_confidence,
+        escalated["text"],
+        escalated["source"],
+        escalated.get("repeated_verbatim", False),
+        region,
+    )
+
+    if final_text != paddle_text:
+        result["text"] = final_text
+        # The text changed - the old flag is stale, recompute it on the
+        # final text (same method OCREngine.extract() uses) instead of
+        # letting the old PaddleOCR flag discard a correct text that came
+        # from the vision API.
+        result["likely_noise"] = (
+            OCREngine._is_noise_line(result["text"])
+            if result["text"] else False
+        )
+
+    if entry is not None:
+        escalations.append(entry)
+
+    return escalations
+
+
+def _aggregate_page_confidence(segment_results: list) -> float:
+    """
+    Combine per-segment OCR confidences into one page-level confidence in
+    PERCENT (0.0-100.0), following AGENTS.md §4.10's page scale (a page
+    below 50% gets reprocessed).
+
+    Segments are character-weighted so a long, high-confidence line
+    counts more than a short, shaky one - the page number reflects what
+    the reader mostly sees, not an arithmetic mean of a few words.
+    Segments with empty text or None confidence (blank/noise crops) are
+    skipped entirely rather than dragged into the average.
+
+    Returns 0.0 if no segment contributes a usable confidence (e.g. a
+    page that OCR'd as all-blank) - 0.0 is below every reprocess
+    threshold, so such a page is treated exactly like the
+    low-confidence page it is.
+    """
+    weighted_sum = 0.0
+    total_chars = 0
+
+    for result in segment_results:
+        text = (result.get("text") or "").strip()
+        confidence = result.get("confidence")
+        if not text or confidence is None:
+            continue
+        weighted_sum += len(text) * float(confidence)
+        total_chars += len(text)
+
+    if total_chars == 0:
+        return 0.0
+    return weighted_sum / total_chars * 100.0
 
 
 def _detect_line_bands(crop, crop_bin, surya_detector):
@@ -128,10 +309,12 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_det
     slow/failed call for long (one retry, then falls back to the
     PaddleOCR text), and never exceeds vision_engine's call budget.
 
-    Every successful escalation (vision text actually used, not a fallback
-    to the original PaddleOCR text) is also recorded in an `escalations`
-    list and returned as the third element of the tuple. This is a review
-    aid, not part of the manuscript text itself: a vision-LLM escalation
+    Every real vision attempt (vision text actually produced, not a
+    fallback to the original PaddleOCR text) is recorded in an
+    `escalations` list and returned as the third element of the tuple -
+    INCLUDING attempts the acceptance gate rejected (cross-crop
+    repeated_verbatim guesses and verbatim echoes of the OCR text), so
+    the review log shows both sides. This is a review aid, not part of the manuscript text itself: a vision-LLM escalation
     can produce fluent, well-formed Arabic that is nonetheless a confident
     misreading (e.g. the model recognizing the general shape of a line and
     substituting a well-known classical phrase instead of transcribing
@@ -208,6 +391,11 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_det
     rendered_lines = []
     escalations = []
     has_verse_row = False
+    # Confidence of the crops whose text actually made it into the final
+    # region text (see _aggregate_page_confidence). Noise/blank crops are
+    # excluded exactly like they're excluded from rendered_lines, so a
+    # page full of dropped watermark junk isn't artificially "confident".
+    kept_results = []
 
     for plan in band_plan:
         if plan["kind"] == "rule":
@@ -221,52 +409,15 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_det
             right_result = batch_results[plan["right_idx"]]
             left_result = batch_results[plan["left_idx"]]
 
-            if vision_engine and vision_engine.should_escalate(right_result["confidence"]):
-                paddle_text = right_result["text"]
-                paddle_confidence = right_result["confidence"]
-                escalated = vision_engine.transcribe(right_img, right_result["text"])
-                right_result["text"] = escalated["text"]
-                # The text changed - the old flag is stale, recompute it on
-                # the final text (same method OCREngine.extract() uses)
-                # instead of letting the old PaddleOCR flag discard a
-                # correct text that came from the vision API.
-                right_result["likely_noise"] = (
-                    OCREngine._is_noise_line(right_result["text"])
-                    if right_result["text"] else False
+            if _should_escalate_line(vision_engine, right_result["text"], right_result["confidence"]):
+                escalations.extend(
+                    _maybe_escalate_line(vision_engine, right_result, right_img, "verse_right")
                 )
-                # Record every escalation that actually used vision output
-                # (source != "paddle" means the vision call succeeded and
-                # passed validation) - see the docstring above and
-                # output_generator.save_escalations() for why this is kept
-                # separate from the manuscript text.
-                if escalated["source"] != "paddle":
-                    escalations.append({
-                        "region": "verse_right",
-                        "paddle_text": paddle_text,
-                        "paddle_confidence": paddle_confidence,
-                        "escalated_text": right_result["text"],
-                        "source": escalated["source"],
-                        "repeated_verbatim": escalated.get("repeated_verbatim", False),
-                    })
 
-            if vision_engine and vision_engine.should_escalate(left_result["confidence"]):
-                paddle_text = left_result["text"]
-                paddle_confidence = left_result["confidence"]
-                escalated = vision_engine.transcribe(left_img, left_result["text"])
-                left_result["text"] = escalated["text"]
-                left_result["likely_noise"] = (
-                    OCREngine._is_noise_line(left_result["text"])
-                    if left_result["text"] else False
+            if _should_escalate_line(vision_engine, left_result["text"], left_result["confidence"]):
+                escalations.extend(
+                    _maybe_escalate_line(vision_engine, left_result, left_img, "verse_left")
                 )
-                if escalated["source"] != "paddle":
-                    escalations.append({
-                        "region": "verse_left",
-                        "paddle_text": paddle_text,
-                        "paddle_confidence": paddle_confidence,
-                        "escalated_text": left_result["text"],
-                        "source": escalated["source"],
-                        "repeated_verbatim": escalated.get("repeated_verbatim", False),
-                    })
 
             # Same noise filter applied in extract_prose_region() - this
             # was missing here before, meaning watermarks or leaked margin
@@ -285,34 +436,28 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_det
                 rendered_lines.append(
                     f"{right_result['text']} ... {left_result['text']}"
                 )
+                if right_result["text"]:
+                    kept_results.append(right_result)
+                if left_result["text"]:
+                    kept_results.append(left_result)
         else:
             full_img = plan["img"]
             line_result = batch_results[plan["idx"]]
 
-            if vision_engine and vision_engine.should_escalate(line_result["confidence"]):
-                paddle_text = line_result["text"]
-                paddle_confidence = line_result["confidence"]
-                escalated = vision_engine.transcribe(full_img, line_result["text"])
-                line_result["text"] = escalated["text"]
-                line_result["likely_noise"] = (
-                    OCREngine._is_noise_line(line_result["text"])
-                    if line_result["text"] else False
+            if _should_escalate_line(vision_engine, line_result["text"], line_result["confidence"]):
+                escalations.extend(
+                    _maybe_escalate_line(vision_engine, line_result, full_img, "full_width")
                 )
-                if escalated["source"] != "paddle":
-                    escalations.append({
-                        "region": "full_width",
-                        "paddle_text": paddle_text,
-                        "paddle_confidence": paddle_confidence,
-                        "escalated_text": line_result["text"],
-                        "source": escalated["source"],
-                        "repeated_verbatim": escalated.get("repeated_verbatim", False),
-                    })
 
             if line_result["text"] and not line_result.get("likely_noise"):
                 rendered_lines.append(line_result["text"])
+                kept_results.append(line_result)
 
     structure = "verse" if has_verse_row else "prose_only"
-    return "\n".join(rendered_lines), structure, escalations
+    return (
+        "\n".join(rendered_lines), structure, escalations,
+        _aggregate_page_confidence(kept_results),
+    )
 
 def extract_prose_region(prose_crop, ocr_engine, surya_detector=None):
     """
@@ -376,9 +521,19 @@ def extract_prose_region(prose_crop, ocr_engine, surya_detector=None):
         if result["text"] and not result.get("likely_noise")
     ]
 
-    return "\n".join(rendered_lines)
+    # Region confidence = character-weighted mean of the confidences of
+    # the lines that survived the noise filter (same definition as
+    # extract_poetry_region).
+    kept_results = [
+        result
+        for result in results
+        if result["text"] and not result.get("likely_noise")
+    ]
 
-def process_page_image(image, ocr_engine, vision_engine=None, surya_detector=None):
+    return "\n".join(rendered_lines), _aggregate_page_confidence(kept_results)
+
+def process_page_image(image, ocr_engine, vision_engine=None, surya_detector=None,
+                       reprocess_cfg=None):
     """
     Decide per page whether a poetry/prose boundary exists (same detector
     as page_layout_detector.py - unchanged; Surya only replaces LINE
@@ -397,7 +552,82 @@ def process_page_image(image, ocr_engine, vision_engine=None, surya_detector=Non
                                           # this page, for the human-review
                                           # log - see extract_poetry_region()
                                           # and output_generator.save_escalations()
+            'confidence_percent': float, # character-weighted page
+                                          # confidence (see
+                                          # _aggregate_page_confidence)
+            'binarization_attempt': int, # which binarization pass produced
+                                          # this result (1 or 2 - see the
+                                          # page-confidence reprocess loop
+                                          # below, AGENTS.md §4.10)
         }
+    """
+    reprocess_cfg = reprocess_cfg or {}
+
+    result = _run_page_once(image, ocr_engine, vision_engine, surya_detector)
+    confidence = result["confidence_percent"]
+
+    retry_enabled = bool(reprocess_cfg.get("enabled", True))
+    threshold = float(reprocess_cfg.get("threshold", 50.0))
+    skipped = result.get("structure") == "blank_or_unclear"
+
+    if not retry_enabled or skipped or confidence >= threshold:
+        result["binarization_attempt"] = 1
+        return result
+
+    # ---- PAGE-CONFIDENCE REPROCESS LOOP (AGENTS.md §4.10): a page whose
+    # retained lines average below 50% confidence means OCR struggled
+    # with it wholesale, so a second pass with a DIFFERENT binarization
+    # (finer block + less aggressive c) is worth trying before shipping
+    # a page full of shaky reads. Only the winning pass's text and
+    # escalations are returned; a rejected retry's escalation log entries
+    # are discarded along with its text. Confidences are re-aggregated
+    # from the deterministic PaddleOCR cache on both passes, so the
+    # better of the two is chosen consistently.
+    retry_block = int(reprocess_cfg.get("retry_block_size", 31))
+    retry_c = int(reprocess_cfg.get("retry_c", 5))
+
+    logger.warning(
+        f"Page confidence {confidence:.1f}% < {threshold:.0f}% - "
+        f"reprocessing once with finer binarization "
+        f"(block_size={retry_block}, c={retry_c})."
+    )
+
+    set_binarize_params(block_size=retry_block, c=retry_c)
+    try:
+        retry = _run_page_once(image, ocr_engine, vision_engine, surya_detector)
+    finally:
+        reset_binarize_params()
+
+    retry_confidence = retry["confidence_percent"]
+
+    if retry_confidence > confidence:
+        logger.info(
+            f"  retry better ({retry_confidence:.1f}% vs {confidence:.1f}%) "
+            f"- using the reprocessed result."
+        )
+        result = retry
+        result["binarization_attempt"] = 2
+    else:
+        logger.info(
+            f"  retry not better ({retry_confidence:.1f}% <= {confidence:.1f}%) "
+            f"- keeping the first pass."
+        )
+        result["binarization_attempt"] = 1
+
+    return result
+
+
+def _run_page_once(image, ocr_engine, vision_engine=None, surya_detector=None):
+    """
+    One full extraction pass over a page with the CURRENT binarization
+    settings (which main.py's reprocess loop can change between passes).
+    Pure function of (image, binarization params) apart from the
+    inherently non-deterministic vision escalation, which is recorded in
+    the returned 'escalations' list exactly as before.
+
+    Returns a dict with 'text' / 'prose_text' / 'structure' /
+    'escalations' / 'confidence_percent' (the latter per
+    _aggregate_page_confidence, weighted across poetry and prose).
     """
     binary = layout.binarize(image)
     dilated = layout.dilate_text(binary)
@@ -416,7 +646,10 @@ def process_page_image(image, ocr_engine, vision_engine=None, surya_detector=Non
         # in full_manuscript.txt traced back to pages that hit this
         # branch). Skip OCR entirely and flag the page for manual review
         # instead of guessing.
-        return {"text": "", "prose_text": None, "structure": "blank_or_unclear", "escalations": []}
+        return {
+            "text": "", "prose_text": None, "structure": "blank_or_unclear",
+            "escalations": [], "confidence_percent": 0.0,
+        }
 
     content_bbox = layout.compute_content_bbox(boxes)
     boundary_info = layout.find_footnote_boundary(binary, content_bbox, boxes)
@@ -437,20 +670,37 @@ def process_page_image(image, ocr_engine, vision_engine=None, surya_detector=Non
         prose_bbox = None
 
     poetry_crop = image[poetry_bbox[1]:poetry_bbox[3], poetry_bbox[0]:poetry_bbox[2]]
-    poetry_text, structure, escalations = extract_poetry_region(
+    poetry_text, structure, escalations, poetry_conf = extract_poetry_region(
         poetry_crop, ocr_engine, vision_engine, surya_detector
     )
 
     prose_text = None
+    prose_conf = 0.0
     if prose_bbox is not None:
         prose_crop = image[prose_bbox[1]:prose_bbox[3], prose_bbox[0]:prose_bbox[2]]
-        prose_text = extract_prose_region(prose_crop, ocr_engine, surya_detector)
+        prose_text, prose_conf = extract_prose_region(prose_crop, ocr_engine, surya_detector)
+
+    # Combine poetry/prose confidences weighted by their retained text
+    # length, so a page whose margin text dominates the character count
+    # has its page confidence reflect that (same principle as
+    # _aggregate_page_confidence for lines within one region).
+    pieces = []
+    if poetry_text:
+        pieces.append((len(poetry_text), poetry_conf))
+    if prose_text:
+        pieces.append((len(prose_text), prose_conf))
+    if pieces:
+        total_chars = sum(chars for chars, _ in pieces)
+        confidence = sum(chars * conf for chars, conf in pieces) / total_chars
+    else:
+        confidence = 0.0
 
     return {
         "text": poetry_text,
         "prose_text": prose_text,
         "structure": structure,
         "escalations": escalations,
+        "confidence_percent": confidence,
     }
 
 
@@ -614,8 +864,15 @@ def process_document(file_path: Path, config: dict, ocr_engine: OCREngine,
         # since every detector after it assumes horizontal text lines).
         image = preprocess_page(image, preprocessing_config)
 
-        page_ocr = process_page_image(image, ocr_engine, vision_engine, surya_detector)
+        page_ocr = process_page_image(
+            image, ocr_engine, vision_engine, surya_detector,
+            reprocess_cfg=config.get('ocr', {}).get('page_confidence_reprocess', {}),
+        )
         logger.info(f"    structure detected: {page_ocr['structure']}")
+        logger.info(
+            f"    page confidence: {page_ocr['confidence_percent']:.1f}% "
+            f"(binarization attempt {page_ocr['binarization_attempt']})"
+        )
         
         page_result = {
             'page_num': page_num,
@@ -623,7 +880,9 @@ def process_document(file_path: Path, config: dict, ocr_engine: OCREngine,
             'prose_text': page_ocr['prose_text'],
             'structure': page_ocr['structure'],
             'ocr_method': 'paddle',
-            'source_file': page_data['source_file']
+            'source_file': page_data['source_file'],
+            'confidence_percent': page_ocr['confidence_percent'],
+            'binarization_attempt': page_ocr['binarization_attempt'],
         }
 
         # Saved immediately, not after the whole book finishes - this way

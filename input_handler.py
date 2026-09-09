@@ -10,7 +10,11 @@ import pymupdf as fitz
 from PIL import Image
 import logging
 
-from pdf_text_extractor import extract_direct_text
+from pdf_text_extractor import (
+    PDF_TYPE_HYBRID,
+    extract_direct_text,
+    detect_pdf_type,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +115,13 @@ class InputHandler:
             logger.info(f"PDF has {len(doc)} pages")
             
             direct_text_count = 0
+            # One usable-text verdict per page, in page order, collected
+            # below so we can classify the WHOLE file explicitly
+            # (pdf_text_extractor.detect_pdf_type, AGENTS.md §4.5) after
+            # the loop. Per-page routing stays the real decision; this
+            # file-level label exists so a TXT/HYBRID file is never
+            # silently treated as a uniform IMAGE-OCR job.
+            usable_text_flags = []
 
             for page_num in range(len(doc)):
                 page = doc[page_num]
@@ -130,6 +141,7 @@ class InputHandler:
                     direct_text = extract_direct_text(page)
                     if direct_text:
                         direct_text_count += 1
+                    usable_text_flags.append(direct_text is not None)
 
                 # Render page to image
                 mat = fitz.Matrix(dpi / 72, dpi / 72)  # 72 is default PDF DPI
@@ -167,6 +179,31 @@ class InputHandler:
                 logger.info(
                     f"  Direct text-layer extraction: {direct_text_count}/{len(doc)} "
                     f"page(s) will skip OCR entirely (usable embedded text found)."
+                )
+
+            # File-level classification (AGENTS.md §4.5): when the
+            # extraction check is disabled, every page was OCR'd, so the
+            # file is an IMAGE job from the pipeline's point of view.
+            if not self.enable_direct_text_extraction:
+                usable_text_flags = [False] * len(doc)
+
+            pdf_type = detect_pdf_type(usable_text_flags)
+
+            # HYBRID must be reported EXPLICITLY, never silently
+            # funnelled into a single path (§4.5: "لا يَسقط بصمت إلى
+            # OCR"). TEXT/IMAGE are normal info lines.
+            log_func = logger.warning if pdf_type == PDF_TYPE_HYBRID else logger.info
+            log_func(
+                f"  File-level PDF type: {pdf_type} "
+                f"({direct_text_count}/{len(doc)} page(s) with a usable "
+                f"embedded text layer) - per-page routing still applies; "
+                f"see AGENTS.md §4.5."
+            )
+            if pdf_type == PDF_TYPE_HYBRID:
+                logger.warning(
+                    "  HYBRID is not a single-path job: text-layer pages "
+                    "take direct extraction, image pages take OCR - decided "
+                    "per page. Not falling back to whole-file OCR."
                 )
 
             doc.close()

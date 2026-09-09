@@ -78,6 +78,27 @@ _LATIN_CHAR_RE = re.compile(r"[A-Za-z]")
 _LETTER_RE = re.compile(r"[^\W\d_]", flags=re.UNICODE)
 _REPLACEMENT_CHAR = "\ufffd"
 
+# ---- File-level PDF classification (AGENTS.md §4.5) ----
+#
+# Per-page routing already decides each page's own path (direct
+# extraction vs OCR). detect_pdf_type() aggregates those per-page
+# verdicts into ONE explicit file-level label so a whole PDF is never
+# treated as "an OCR job" (or "a text job") silently. The key
+# production rule it enforces is that HYBRID exists: a file mixing
+# usable text-layer pages with scanned image pages is reported
+# explicitly - it is never silently dropped into a single path.
+
+PDF_TYPE_TEXT = "TEXT"
+PDF_TYPE_IMAGE = "IMAGE"
+PDF_TYPE_HYBRID = "HYBRID"
+PDF_TYPE_UNKNOWN = "UNKNOWN"
+
+# Thresholds for the "usable text layer" judgement are the SAME ones
+# _looks_like_usable_text() uses per page (MIN_TEXT_CHARS etc.) - this
+# function only counts verdicts, it never re-derives them.
+
+PDF_TYPE_LABELS = (PDF_TYPE_TEXT, PDF_TYPE_IMAGE, PDF_TYPE_HYBRID, PDF_TYPE_UNKNOWN)
+
 
 def _looks_like_usable_text(text: str) -> bool:
     if not text:
@@ -134,3 +155,43 @@ def extract_direct_text(fitz_page: Any) -> Optional[str]:
         return None
 
     return text.strip()
+
+
+def detect_pdf_type(usable_text_flags) -> str:
+    """
+    Aggregate the per-page text-layer verdicts of one PDF into the
+    FILE-level category defined in AGENTS.md §4.5:
+
+        TEXT   -> every page has a usable embedded text layer
+                  (Direct Extraction is appropriate for the whole file)
+        IMAGE  -> no page has a usable text layer
+                  (render -> analyze -> OCR for the whole file)
+        HYBRID -> some pages usable, some not. NOT routed through a
+                  single production path - coexist per page, and the
+                  caller is REQUIRED to surface this label explicitly
+                  (a clear log line), never to silently drop the whole
+                  file onto one path (§4.5: "لا يَسقط بصمت إلى OCR").
+
+    `usable_text_flags` is an iterable of booleans, one per page in
+    page order (True = that page's embedded text passed
+    _looks_like_usable_text(), i.e. direct extraction was used for it).
+    With direct-text extraction disabled, pass all-False - everything
+    was OCR'd, so the file is an IMAGE job from the pipeline's point of
+    view.
+
+    Returns PDF_TYPE_* (one of TEXT / IMAGE / HYBRID), or
+    PDF_TYPE_UNKNOWN for an empty/absent page list (degenerate input -
+    there is nothing to classify, and nothing to route).
+    """
+    flags = list(usable_text_flags)
+
+    if not flags:
+        return PDF_TYPE_UNKNOWN
+
+    usable = sum(1 for flag in flags if flag)
+
+    if usable == 0:
+        return PDF_TYPE_IMAGE
+    if usable == len(flags):
+        return PDF_TYPE_TEXT
+    return PDF_TYPE_HYBRID

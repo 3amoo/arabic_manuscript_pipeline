@@ -42,3 +42,15 @@ build/
 .DS_Store
 Thumbs.db
 .env
+
+# Local venv (project virtualenv)
+myenv/
+
+# Backup files
+*.backup
+
+# OCR / SQLite cache databases
+*.sqlite3
+
+# Debug artifacts
+debug/

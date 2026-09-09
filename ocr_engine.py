@@ -230,16 +230,87 @@ class OCREngine:
         return texts, scores
 
     @staticmethod
+    def _is_arabic_text(text: str) -> bool:
+        """
+        Check if the text contains at least one REAL Arabic letter.
+        Returns False for lines with only Latin characters, numbers,
+        punctuation, elongation marks (tatweel ـ), or pure diacritics
+        (tashkeel) - all of which are noise symptoms, not meaningful
+        Arabic content.
+        """
+        for char in text:
+            codepoint = ord(char)
+            # Main Arabic letter blocks: حروف الألف-الغين (0621-063A)
+            # and الفاء-الياء (0641-064A). Deliberately EXCLUDES tatweel
+            # (0640), diacritics (064B-0652, 0670), digits (0660-0669)
+            # and punctuation (060C, 061B, 061F, 066D) - a line of only
+            # those is noise in this pipeline.
+            if 0x0621 <= codepoint <= 0x063A:
+                return True
+            if 0x0641 <= codepoint <= 0x064A:
+                return True
+        return False
+
+    @staticmethod
+    def _is_repetitive_garble(text: str) -> bool:
+        """
+        Structural-noise gate for repeated-character garble that the
+        _is_noise_line() single-char-token rule cannot see: a line whose
+        Arabic content is essentially ONE or TWO letters repeated over and
+        over (e.g. ``شسسسسش``, ``سسسسس``). Every character there is a REAL
+        Arabic letter, so _is_arabic_text() passes it, but it is not a
+        meaningful reading - it is OCR spatter on a damaged/small crop.
+
+        Heuristic: count distinct Arabic letters versus total Arabic
+        letters in the line. If the line has enough real Arabic letters
+        (>= 8) but they collapse to almost no distinct letters (distinct
+        ratio <= 0.15, i.e. <= ~1 distinct char per 7), it is spatter.
+        Long real lines (like page_020's genealogy prose) have many
+        distinct letters, so their ratio stays far above the threshold.
+
+        Numbers, diacritics, punctuation and whitespace are ignored - only
+        the actual Arabic letter codepoints (the same set as
+        _is_arabic_text) are counted, so a line like ``لل`` (a duplicated
+        lam inside otherwise-real prose) or ``شس`` (2 letters) is far
+        below the >= 8 letter floor and is NOT flagged.
+        """
+        letters = [
+            c for c in text
+            if 0x0621 <= ord(c) <= 0x063A or 0x0641 <= ord(c) <= 0x064A
+        ]
+        if len(letters) >= 4 and len(set(letters)) <= 2:
+            return True
+        if len(letters) < 12:
+            return False
+        return len(set(letters)) / len(letters) <= 0.25
+
+    @staticmethod
     def _is_noise_line(text: str) -> bool:
         """
         Heuristic filter for footnote/margin garbage: lines where most
         "words" are a single isolated character (typical symptom of OCR
-        struggling with very small footnote font). This does NOT try to
-        clean up the main body text — it only screens out the clearest
-        noise so the margin garbage doesn't pollute the main narrative.
+        struggling with very small footnote font). Lines with NO Arabic
+        characters at all (pure-Latin decorative text, watermarks like
+        "www.almashhed.com", page numbers) are also treated as noise in
+        this Arabic-manuscript pipeline. This does NOT try to clean up
+        the main body text - it only screens out the clearest noise so
+        the margin garbage doesn't pollute the main narrative.
+
+        Two layers (any True => noise):
+          - composition: no real Arabic letters at all, OR mostly
+            single-character "/ " tokens;
+          - structure: _is_repetitive_garble() catches repeated-character
+            spatter like ``شسسسسش`` that _is_arabic_text() passes because
+            its letters are real Arabic.
         """
         tokens = text.split()
         if not tokens:
+            return True
+        # سطر بلا أي حرف عربي = ضجيج (زخرفة/رقم صفحة/علامة مائية)
+        if not OCREngine._is_arabic_text(text):
+            return True
+        # سطر عربي لكنه تكرار حرف واحد/حرفين (شسسسسش) = بُقعة OCR
+        if OCREngine._is_repetitive_garble(text):
             return True
         single_char_tokens = sum(1 for t in tokens if len(t) <= 1)
         ratio = single_char_tokens / len(tokens)
@@ -250,20 +321,6 @@ class OCREngine:
                 quality_info: Optional[Dict] = None) -> Dict[str, Any]:
 
         try:
-            # --- DEBUG مؤقت: احفظ أول صورة بتتبعت فعليًا للموديل عشان نعاينها ---
-            import os as _os
-            if not hasattr(self, '_debug_saved'):
-                _os.makedirs('debug', exist_ok=True)
-                try:
-                    import cv2 as _cv2
-                    _cv2.imwrite('debug/page_fed_to_ocr.png', image)
-                    logger.info(f"DEBUG: saved raw image fed to OCR -> debug/page_fed_to_ocr.png "
-                                f"(shape={image.shape}, dtype={image.dtype})")
-                except Exception as _dbg_e:
-                    logger.warning(f"DEBUG save failed: {_dbg_e}")
-                self._debug_saved = True
-            # --- نهاية كود الـ DEBUG ---
-
             # PaddleOCR 3.x: .ocr() is deprecated, use .predict()
             texts, scores = self._predict_lines(image)
 
@@ -367,6 +424,23 @@ class OCREngine:
                 if self.cache is not None:
                     self.cache.store(images[idx], result)
 
+        # Reconcile 'likely_noise' with the CURRENT heuristic on every
+        # result, cached or fresh. A cache row written under an older
+        # _is_noise_line() version keeps whatever flag it was stored
+        # with, silently surviving forever (e.g. a row for '..wmmw.'
+        # stored before the no-real-Arabic rule got a stale False - which
+        # let that noise line not only survive into output but also feed
+        # the vision hallucination vector). Text/confidence must NOT be
+        # touched (those are the cache's deterministic contract per
+        # AGENTS.md §4.8); only the noise decision is recomputed.
+        for result in results:
+            if result is None:
+                continue
+            text = result.get("text") or ""
+            result["likely_noise"] = (
+                True if not text else self._is_noise_line(text)
+            )
+
         return results
 
     def _run_paddle_batch(self, images: list, batch_size: Optional[int] = None) -> list:
@@ -422,7 +496,7 @@ class OCREngine:
 
                 for i in range(len(chunk)):
                     if i >= len(chunk_results):
-                        results.append({'text': '', 'confidence': None, 'likely_noise': False})
+                        results.append({'text': '', 'confidence': None, 'likely_noise': True})
                         continue
 
                     res = chunk_results[i].json['res']
@@ -431,7 +505,7 @@ class OCREngine:
                     results.append({
                         'text': text,
                         'confidence': confidence,
-                        'likely_noise': self._is_noise_line(text) if text else False,
+                        'likely_noise': self._is_noise_line(text) if text else True,
                     })
 
         except Exception as e:

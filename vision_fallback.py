@@ -69,6 +69,8 @@ from typing import Any, Dict, List, Optional
 import cv2
 import numpy as np
 
+from repeated_verbatim_tracker import RepeatedVerbatimTracker
+
 logger = logging.getLogger(__name__)
 
 PROMPT = (
@@ -631,6 +633,67 @@ class SovereignVisionBackend(VisionBackend):
         return _extract_openai_compatible_text(response, self.name)
 
 
+class QwenVLBackend(VisionBackend):
+    """
+    Local/free Qwen-VL vision fallback via Ollama's OpenAI-compatible
+    endpoint - the "Qwen-VL-Chat محلي/مجاني" item in the roadmap
+    (AGENTS.md §13 Phase 3): zero API cost, no external quota, text stays
+    in-country. Requires a running Ollama server with a Qwen-VL model
+    pulled (e.g. `ollama pull qwen2.5vl` and `ollama run qwen2.5vl:7b`
+    once to warm it), nothing else.
+
+    If Ollama is NOT running, the first escalated line fails fast with a
+    connection error, the rotation marks the slot dead and moves on to
+    the next backend (standard _attempt_on_slot behavior) - no hang, no
+    budget burn, and clearly logged. So this backend is safe to keep in
+    rotation_order even on machines without Ollama; it simply drops out
+    the instant it's found unavailable.
+
+    Because Ollama serves whatever you pulled, the default model name is
+    a stable local identifier (qwen2.5vl:7b) - override
+    backends.qwen_vl.model in settings.yaml if you pulled a different
+    tag. api_key_env is not needed (Ollama ignores the key); the class
+    only needs it to satisfy the OpenAI SDK signature like every other
+    backend here.
+    """
+
+    name = "qwen_vl"
+
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None,
+                 base_url: Optional[str] = None):
+        if not model:
+            model = "qwen2.5vl:7b"
+        from openai import OpenAI  # pip install openai --break-system-packages
+        self.client = OpenAI(
+            api_key=api_key or "ollama-local",  # SDK requires a non-empty key; Ollama ignores it
+            base_url=base_url or "http://localhost:11434/v1",
+        )
+        self.model = model
+
+    def transcribe(self, image: np.ndarray) -> str:
+        b64 = base64.standard_b64encode(_encode_png(image)).decode("utf-8")
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": PROMPT},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{b64}"},
+                    },
+                ],
+            }],
+            max_tokens=200,
+        )
+        # Ollama's OpenAI-compatible /v1/chat/completions returns the same
+        # OpenAI response shape, so the same null-content-safe extraction
+        # applies (a v1.x model lacking vision support can return empty
+        # choices[0].message.content here).
+        return _extract_openai_compatible_text(response, self.name)
+
+
 BACKEND_REGISTRY = {
     "claude": ClaudeVisionBackend,
     "gemini": GeminiVisionBackend,
@@ -642,6 +705,7 @@ BACKEND_REGISTRY = {
     "github_models": GitHubModelsVisionBackend,
     "sovereign": SovereignVisionBackend,
     "sovereign_2": SovereignVisionBackend,
+    "qwen_vl": QwenVLBackend,
 }
 
 
@@ -686,6 +750,7 @@ class VisionFallbackEngine:
           openrouter:    {model, api_key_env}  # model REQUIRED
           cohere:        {model, api_key_env}  # model REQUIRED
           github_models: {model, api_key_env}  # model REQUIRED
+          qwen_vl:       {model, base_url?}    # local/free via Ollama, no key
 
     Backward compatible with the old single-backend config: if
     'rotation_order' is absent but the old 'backend: claude' key is
@@ -701,17 +766,22 @@ class VisionFallbackEngine:
         self._rotation_pointer = 0
 
         # Tracks how many times each exact escalated text has already
-        # been returned this run (normalized: stripped only). A vision
-        # backend confidently returning the SAME phrase verbatim across
-        # unrelated crops is a much stronger hallucination signal than
-        # any single response shows alone - found in practice
-        # (escalations.jsonl, pages 24-26 of a real run): the same
-        # phrase kept appearing on crops PaddleOCR read as pure noise
-        # ('w', 'ww', 'ـــ') on pages with otherwise dense real content
-        # (so "the crop was genuinely blank" doesn't explain it either).
-        # See CHANGELOG.md for the full investigation.
-        self._seen_escalated_texts: Dict[str, int] = {}
-        self._repeated_escalation_count = 0
+        # been returned - PERSISTENT across runs now (SQLite-backed), not
+        # just this process. A vision backend confidently returning the
+        # SAME phrase verbatim across unrelated crops - even across
+        # separate runs - is a much stronger hallucination signal than
+        # any single response shows alone. Found in practice
+        # (escalations.jsonl / vision_escalations.txt, pages 20-27 of
+        # real runs): the same phrase kept appearing on crops PaddleOCR
+        # read as pure noise ('w', 'ww', 'ـــ') on pages with otherwise
+        # dense real content, across different days - which the old
+        # in-memory dict could never catch (fresh dict each run). See
+        # repeated_verbatim_tracker.py + CHANGELOG.md for the full
+        # investigation.
+        self._repeated_tracker = RepeatedVerbatimTracker(
+            db_path=config.get("repeated_verbatim_db", "output/.cache/repeated_verbatim.sqlite3"),
+            enabled=self.enabled,
+        )
 
         self._slots: List[_BackendSlot] = []
 
@@ -747,6 +817,14 @@ class VisionFallbackEngine:
                 kwargs = {"api_key": api_key}
                 if backend_config.get("model"):
                     kwargs["model"] = backend_config["model"]
+                # Optional per-backend endpoint override (e.g. a non-local
+                # Ollama for 'qwen_vl'). Deliberately NOT read from
+                # settings.yaml for the cloud backends - their base_url is
+                # a hardcoded constant in each class and must stay that
+                # way (§10: don't let an endpoint be trivially typoed into
+                # a secret-stealing target).
+                if backend_config.get("base_url"):
+                    kwargs["base_url"] = backend_config["base_url"]
 
                 try:
                     instance = backend_cls(**kwargs)
@@ -867,21 +945,17 @@ class VisionFallbackEngine:
             if text:
                 self._rotation_pointer = (idx + 1) % n
 
-                normalized = text.strip()
-                seen_before = self._seen_escalated_texts.get(normalized, 0)
-                self._seen_escalated_texts[normalized] = seen_before + 1
-                is_repeated = seen_before > 0
+                is_repeated = self._repeated_tracker.register(text)
                 if is_repeated:
-                    self._repeated_escalation_count += 1
                     logger.warning(
                         f"Vision backend '{slot.name}' returned a "
                         f"transcription that EXACTLY matches a previous "
-                        f"escalation this run ({seen_before + 1} time(s) "
-                        f"total) - flagging as 'repeated_verbatim' in the "
-                        f"review log for manual checking (often means the "
-                        f"crop was near-empty/garbled and the model "
-                        f"guessed a generic phrase instead of "
-                        f"transcribing what's actually there)."
+                        f"escalation (across this run OR an earlier run - "
+                        f"see repeated_verbatim_tracker.py) - flagging as "
+                        f"'repeated_verbatim' in the review log for manual "
+                        f"checking (often means the crop was near-empty/"
+                        f"garbled and the model guessed a generic phrase "
+                        f"instead of transcribing what's actually there)."
                     )
 
                 return {
@@ -905,8 +979,7 @@ class VisionFallbackEngine:
         return (
             f"vision fallback: {total_escalated} line(s) escalated "
             f"successfully across backends ({per_backend}); "
-            f"{self._repeated_escalation_count} flagged as repeated-verbatim "
-            f"(possible hallucination - check review/escalations.jsonl); "
+            f"{self._repeated_tracker.summary()}; "
             f"{self._calls_made}/{self.max_calls or '∞'} total calls used "
             f"(shared budget)"
         )

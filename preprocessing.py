@@ -48,6 +48,37 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# Module-level defaults for adaptive binarization, overridable by
+# set_binarize_params() below. This is the "adjustment arm" per
+# AGENTS.md §4.2: any change to block_size/c must be justified by
+# CER/WER measurement. main.py's page-confidence reprocess loop uses
+# set_binarize_params() to retry a low-confidence page with a finer,
+# more contrast-sensitive threshold before giving up on it.
+_BINARIZE_BLOCK_SIZE = 51
+_BINARIZE_C = 10
+
+
+def set_binarize_params(block_size: int = None, c: int = None) -> None:
+    """
+    Override the module-level adaptive-binarization defaults for the rest
+    of the process (used by main.py's low-confidence page reprocess loop
+    to retry with different settings, then reset via
+    reset_binarize_params()). Both args optional - omitted ones keep
+    their current value.
+    """
+    global _BINARIZE_BLOCK_SIZE, _BINARIZE_C
+    if block_size is not None:
+        _BINARIZE_BLOCK_SIZE = int(block_size)
+    if c is not None:
+        _BINARIZE_C = int(c)
+
+
+def reset_binarize_params() -> None:
+    """Restore the default adaptive-binarization settings."""
+    global _BINARIZE_BLOCK_SIZE, _BINARIZE_C
+    _BINARIZE_BLOCK_SIZE = 51
+    _BINARIZE_C = 10
+
 
 def _projection_score(binary: np.ndarray, angle: float, center: Tuple[float, float]) -> float:
     """
@@ -74,7 +105,7 @@ def _estimate_skew_angle(gray: np.ndarray, max_angle: float) -> float:
     coarse angle. Returns the estimated correction angle in degrees
     (0.0 if the page has no usable ink, e.g. a blank page).
     """
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    binary = adaptive_binarize_gray(gray)
 
     if binary.sum() == 0:
         return 0.0
@@ -167,6 +198,56 @@ def denoise_light(image_bgr: np.ndarray, kernel_size: int = 3) -> np.ndarray:
     if kernel_size % 2 == 0:
         kernel_size += 1  # cv2.medianBlur requires an odd kernel size
     return cv2.medianBlur(image_bgr, kernel_size)
+
+
+def adaptive_binarize(image_bgr: np.ndarray, block_size: int = None,
+                      c: int = None) -> np.ndarray:
+    """
+    Adaptive binarization using cv2.adaptiveThreshold with a large block
+    size to preserve diacritics (tashkeel). This replaces the Otsu
+    threshold that was previously used in 3 locations and was too
+    aggressive for Arabic script diacritics.
+    
+    Uses adaptiveThreshold which calculates threshold locally for small
+    regions, better preserving thin marks than global Otsu.
+    
+    Args:
+        image_bgr: Input BGR image
+        block_size: Block size for local threshold calculation (must be odd).
+                   Larger = smoother, better diacritic preservation.
+                   Defaults to the module-level knob (51).
+        c: Constant subtracted from mean. Higher = more aggressive.
+           Defaults to the module-level knob (10).
+    
+    Returns:
+        Binary image (0/255) with text as white on black background.
+    """
+    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    return adaptive_binarize_gray(gray, block_size=block_size, c=c)
+
+
+def adaptive_binarize_gray(gray: np.ndarray, block_size: int = None,
+                           c: int = None) -> np.ndarray:
+    """
+    Same as adaptive_binarize() but takes a grayscale image directly.
+    For internal use where grayscale is already available.
+    """
+    if block_size is None:
+        block_size = _BINARIZE_BLOCK_SIZE
+    if c is None:
+        c = _BINARIZE_C
+
+    # Ensure block_size is odd
+    if block_size % 2 == 0:
+        block_size += 1
+    
+    binary = cv2.adaptiveThreshold(
+        gray, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        block_size, c
+    )
+    return binary
 
 
 def preprocess_page(image_bgr: np.ndarray, config: Dict[str, Any]) -> np.ndarray:

@@ -177,15 +177,13 @@ def render_page_to_array(doc, page_number, dpi):
 def binarize(image_bgr):
     """
     Convert to grayscale and threshold so that text becomes white (255,
-    foreground) on a black (0) background. Otsu's method picks the
-    threshold automatically per-image instead of using one fixed number,
-    which handles scan-to-scan brightness variation.
+    foreground) on a black (0) background. Uses adaptive thresholding to
+    preserve thin diacritics (tashkeel) which global Otsu tends to
+    erode on Arabic manuscript scans (see AGENTS.md §4.2).
     """
-    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    from preprocessing import adaptive_binarize
 
-    # THRESH_BINARY_INV so text (dark in the original scan) becomes white.
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    return binary
+    return adaptive_binarize(image_bgr)
 
 
 def dilate_text(binary):

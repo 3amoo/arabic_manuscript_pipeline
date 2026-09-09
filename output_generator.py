@@ -57,9 +57,19 @@ class OutputGenerator:
         text = page.get('text', '')
         method = page.get('ocr_method', 'unknown')
 
+        header_lines = [f"# Page {page_num}", f"# OCR Method: {method}"]
+        confidence = page.get('confidence_percent')
+        if confidence is not None:
+            header_lines.append(
+                f"# Page Confidence: {float(confidence):.1f}%"
+            )
+        header_lines.append(
+            f"# Binarization Attempt: {page.get('binarization_attempt', 1)}"
+        )
+
         filename = raw_dir / f'page_{page_num:03d}.txt'
         filename.write_text(
-            f"# Page {page_num}\n# OCR Method: {method}\n\n{text}",
+            f"{chr(10).join(header_lines)}\n\n{text}",
             encoding='utf-8',
         )
 
@@ -82,26 +92,37 @@ class OutputGenerator:
     def save_escalations(self, document_name: str, page_num: int,
                           escalations: List[Dict[str, Any]]) -> Path:
         """
-        Appends every successful vision-fallback escalation for this page
-        to output/{document}/review/escalations.jsonl (one JSON object per
-        line, so the file stays append-friendly and readable line-by-line
-        without loading the whole thing into memory on a huge manuscript).
+Appends every real vision-fallback attempt for this page to
+    output/{document}/review/escalations.jsonl (one JSON object per line,
+    so the file stays append-friendly and readable line-by-line without
+    loading the whole thing into memory on a huge manuscript).
 
-        Called once per page from process_document() in main.py, only
-        when that page actually had at least one escalation (an empty
-        list is a no-op here, not an empty write) - see
-        extract_poetry_region()'s docstring in main.py for exactly what
-        counts as an escalation and why it's tracked separately from the
-        manuscript text itself.
+    Called once per page from process_document() in main.py, only when
+    that page actually had at least one escalation (an empty list is a
+    no-op here, not an empty write) - see extract_poetry_region()'s
+    docstring in main.py for exactly what counts as an escalation and why
+    it's tracked separately from the manuscript text itself.
 
-        Each line has the shape:
+    Since the §4.13 acceptance gate split (main.py's
+    _evaluate_escalation()), "escalation" means ANY real vision success,
+    including ones whose text was REJECTED from the manuscript (cross-crop
+    repeated_verbatim guesses and verbatim echoes of the OCR text carry an
+    `accepted: false` + `reason` field - the reviewer must still see
+    those, they are exactly the hallucination vectors). No key filtering:
+    every dict on the `escalations` list is written verbatim beside the
+    page number.
+
+    Each line has the shape:
             {
               "page": int,
               "region": "verse_right" | "verse_left" | "full_width",
               "paddle_text": str,
               "paddle_confidence": float | null,
               "escalated_text": str,
-              "source": str            # which vision backend won
+              "source": str,             # which vision backend won
+              "repeated_verbatim": bool, # cross-crop tracker flag
+              "accepted": bool,          # passed §4.13 acceptance gate?
+              "reason": str              # "accepted" | "repeated_verbatim_cross_crop" | "echoed_ocr"
             }
         """
         doc_dir, _ = self._doc_dirs(document_name)

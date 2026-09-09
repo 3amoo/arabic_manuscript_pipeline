@@ -65,15 +65,16 @@ RULE_MIN_WIDTH_RATIO = 0.40
 
 
 def binarize(image_bgr):
-    gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    """
+    Convert to grayscale and threshold so that text becomes white (255)
+    foreground on black (0) background. Uses adaptive thresholding to
+    preserve thin diacritics (tashkeel) which global Otsu tends to erode
+    on Arabic manuscript scans (see AGENTS.md §4.2).
+    Returns 0/1 binary mask (for the row-segmentation logic).
+    """
+    from preprocessing import adaptive_binarize
 
-    _, binary = cv2.threshold(
-        gray,
-        0,
-        255,
-        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
-    )
-
+    binary = adaptive_binarize(image_bgr)
     return (binary > 0).astype(np.uint8)
 
 

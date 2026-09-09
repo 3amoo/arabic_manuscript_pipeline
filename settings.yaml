@@ -94,6 +94,20 @@ ocr:
   caching:
     enabled: true
     db_path: "output/.cache/ocr_cache.sqlite3"
+  # Page-confidence reprocess loop (AGENTS.md §4.10): a page whose
+  # character-weighted confidence aggregates below `threshold` is OCR'd a
+  # second time with DIFFERENT binarization settings (finer block + less
+  # aggressive c) before shipping. Only the better-confidence pass wins;
+  # its text and escalations are kept, the other pass is discarded.
+  # `threshold` is on the PAGE scale (0-100), not the word/line scale
+  # used by vision_fallback.should_escalate. The retry block/c values are
+  # an "adjustment arm" for §4.2 and any change to them must be justified
+  # by CER/WER measurement against ground truth.
+  page_confidence_reprocess:
+    enabled: true
+    threshold: 50.0
+    retry_block_size: 31
+    retry_c: 5
 
 analysis:
   llm_provider: "gemini"
@@ -109,6 +123,20 @@ output:
   - "md"
   include_metadata: true
   cleanup_temp: true
+
+# Optional line-detection backend (surya_line_detector.py + AGENTS.md §13
+# Phase 2). ABSENT by default = the classical row-projection detector in
+# segment_text_rows.py is used (the proven path). surya-ocr is now
+# INSTALLED in the venv; to switch line-boundary detection to Surya's
+# DetectionPredictor instead, set `line_detector: surya` and pick a
+# device. This changes OCR behavior, so it must be validated with
+# CER/WER against ground truth before it can be called an improvement
+# (AGENTS.md §4.12 - the ground truth does not exist yet).
+# layout_detection:
+#   line_detector: "surya"   # uncomment to enable; anything else -> classical
+#   surya:
+#     device: "cuda"         # "cuda" | "cpu" | null (auto-detect)
+#     confidence_threshold: 0.4
 
 # Review Settings
 review:
@@ -135,6 +163,13 @@ vision_fallback:
   - openrouter
   confidence_threshold: 0.55
   max_calls: 3000
+  # Persistent occurrence counter for the 'repeated_verbatim'
+  # (hallucination) flag - see repeated_verbatim_tracker.py. Unlike the
+  # old in-memory dict, this survives across runs so a phrase that keeps
+  # being hallucinated over several days is caught (it was documented in
+  # vision_escalations.txt appearing on pages 20-27 across separate runs
+  # with a fresh dict each time, never flagged).
+  repeated_verbatim_db: "output/.cache/repeated_verbatim.sqlite3"
   backends:
     gemini:
       model: gemini-3.6-flash
@@ -163,6 +198,15 @@ vision_fallback:
     claude:
       model: claude-sonnet-5
       api_key_env: ANTHROPIC_API_KEY
+    qwen_vl:
+      # Local/free vision backend (zero API cost, no quota). Needs
+      # Ollama running locally with a Qwen-VL model pulled, e.g.:
+      #   ollama pull qwen2.5vl
+      #   ollama run qwen2.5vl:7b
+      # No api_key_env - Ollama ignores the key entirely.
+      model: qwen2.5vl:7b
+      # Optional override if Ollama listens elsewhere (not localhost):
+      # base_url: "http://localhost:11434/v1"
 
 text_correction:
   enabled: true
@@ -175,3 +219,13 @@ text_correction:
     groq:
       model: llama-3.3-70b-versatile
       api_key_env: GROQ_API_KEY1
+
+# REVIEW-only morphological verifier (morphological_verifier.py +
+# flag_suspicious_words.py -> output/<doc>/review/suspicious_words.jsonl).
+# Not part of the main.py OCR path. camel-tools 1.6.0 + morphology-db-msa-r13
+# are installed; `db_name` below is the packaging name inside camel_tools
+# (the DB pip package is 'morphology-db-msa-r13', the DB name is
+# 'calima-msa-r13').
+# token_verification:
+#   db_name: "calima-msa-r13"
+#   max_candidates: 5
