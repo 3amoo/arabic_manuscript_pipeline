@@ -23,7 +23,15 @@
 
 **Verification**: The function is called from `page_layout_detector.binarize()` (returns 0/255) and `segment_text_rows.binarize()` (returns 0/1 — note: different convention, uses `> 0` conversion). The gate should use the native 0/255 output directly.
 
-**Assumption**: `adaptive_binarize_gray` works on small crops (not just full pages). The adaptive threshold is a local operation (Gaussian-weighted sum over a `block_size×block_size` neighborhood), so it degrades gracefully on small images. If the crop is smaller than `block_size` (51 pixels), OpenCV clamps the neighborhood to the image boundary — this produces valid but potentially less optimal binarization. For ink-density measurement, this is acceptable (we only need a rough ratio, not OCR-quality binarization).
+**Correction (2026-09-09)**: The original assumption claimed OpenCV "clamps the neighborhood to the image boundary" for crops smaller than `block_size`. **This is incorrect and unsafe** — `cv2.adaptiveThreshold()` with a `blockSize` larger than an image dimension is not guaranteed to degrade gracefully; several OpenCV builds raise an assertion/error in that case. Since hemistich crops are frequently < 51px tall, a naive call with the default `block_size` would risk a crash on real data.
+
+**Decision — clamp `block_size` to the crop**: The gate computes a safe block size per crop before calling `adaptive_binarize_gray()`:
+
+```
+safe_block = min(_BINARIZE_BLOCK_SIZE, odd(min(h, w) - 2))
+```
+
+where `odd(n)` ensures the value is odd and `>= 3`. `adaptive_binarize_gray()` already accepts an explicit `block_size` and forces it odd (`preprocessing.py:235-242`), so the gate passes `safe_block` explicitly. `FR-005` is unchanged — the gate still reuses `adaptive_binarize_gray` (no new binarization method); only the parameter is bounded to the crop dimensions. For ink-density measurement this is acceptable (we only need a rough ratio, not OCR-quality binarization).
 
 ## R3: Default Threshold — 2% Ink
 

@@ -1,0 +1,45 @@
+{
+  "version": "1.0",
+  "fixtures": [
+    {
+      "id": "blank_white",
+      "path": "blank_white.png",
+      "expected_block": true,
+      "measured_ink_ratio": 0.0,
+      "source": "synthetic",
+      "description": "Fully white 200x50 crop - zero ink"
+    },
+    {
+      "id": "kashida_only",
+      "path": "kashida_only.png",
+      "expected_block": true,
+      "measured_ink_ratio": 0.0085,
+      "source": "synthetic",
+      "description": "Single short kashida stroke - sparse ink"
+    },
+    {
+      "id": "punctuation_only",
+      "path": "punctuation_only.png",
+      "expected_block": true,
+      "measured_ink_ratio": 0.0048,
+      "source": "synthetic",
+      "description": "A few small dots/commas - sparse ink"
+    },
+    {
+      "id": "faint_text",
+      "path": "faint_text.png",
+      "expected_block": false,
+      "measured_ink_ratio": 0.0235,
+      "source": "synthetic",
+      "description": "Thin thin-line text slightly above default threshold"
+    },
+    {
+      "id": "real_text_01",
+      "path": "real_text_01.png",
+      "expected_block": false,
+      "measured_ink_ratio": 0.2653,
+      "source": "synthetic",
+      "description": "Dense text - simulates a real manuscript crop"
+    }
+  ]
+}

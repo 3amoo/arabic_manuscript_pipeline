@@ -55,3 +55,6 @@ myenv/
 # Debug artifacts
 debug/
 archive/
+
+# Local baseline snapshots (not tracked - compare-only artifacts)
+specs/004-ink-density-gate/pre-gate-baseline/

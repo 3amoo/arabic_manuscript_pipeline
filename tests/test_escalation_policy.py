@@ -11,14 +11,23 @@ Run with:  myenv/bin/python -m unittest tests.test_escalation_policy -v
 """
 
 import unittest
+from pathlib import Path
+
+import cv2
+import numpy as np
 
 from ocr_engine import OCREngine
 
 from main import (
+    _compute_ink_ratio,
+    _evaluate_ink_density,
+    _ink_density_threshold,
     _is_repeated_verbatim,
     _evaluate_escalation,
     _maybe_escalate_line,
 )
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "ink_density"
 
 
 class RepetitiveGarbleFilter(unittest.TestCase):
@@ -169,6 +178,157 @@ class IntegrationWrapper(unittest.TestCase):
         self.assertEqual(len(escalations), 1)
         self.assertTrue(escalations[0]["accepted"])
         self.assertEqual(escalations[0]["reason"], "accepted")
+
+
+class InkDensityGate(unittest.TestCase):
+    """_compute_ink_ratio / _evaluate_ink_density - the ink-density gate.
+
+    Synthetic fixtures live in tests/fixtures/ink_density/ (source:
+    "synthetic"); each carries an expected_block flag from fixture
+    creation time. All fixtures are deterministic PNGs, so these tests
+    are repeatable.
+    """
+
+    DEFAULT_THRESHOLD = 0.02
+
+    def setUp(self):
+        self.fixture_dir = FIXTURE_DIR
+        for name in ("blank_white", "kashida_only", "punctuation_only",
+                     "faint_text", "real_text_01"):
+            path = str(self.fixture_dir / (name + ".png"))
+            img = cv2.imread(path)
+            self.assertIsNotNone(img, "missing fixture %s" % name)
+            setattr(self, name, img)
+
+    def test_blank_white_blocked(self):
+        ratio = _compute_ink_ratio(self.blank_white)
+        self.assertIsNotNone(ratio)
+        self.assertAlmostEqual(ratio, 0.0, delta=1e-4)
+        gate = _evaluate_ink_density(ratio, self.DEFAULT_THRESHOLD)
+        self.assertTrue(gate["blocked"])
+        self.assertEqual(gate["reason"], "blank_low_info")
+
+    def test_kashida_below_threshold(self):
+        ratio = _compute_ink_ratio(self.kashida_only)
+        self.assertIsNotNone(ratio)
+        gate = _evaluate_ink_density(ratio, self.DEFAULT_THRESHOLD)
+        self.assertTrue(gate["blocked"])
+        self.assertIn(gate["reason"], ("blank_low_info", "low_ink_ratio"))
+
+    def test_punctuation_below_threshold(self):
+        ratio = _compute_ink_ratio(self.punctuation_only)
+        self.assertIsNotNone(ratio)
+        gate = _evaluate_ink_density(ratio, self.DEFAULT_THRESHOLD)
+        self.assertTrue(gate["blocked"])
+        self.assertEqual(gate["reason"], "low_ink_ratio")
+
+    def test_faint_text_passes(self):
+        ratio = _compute_ink_ratio(self.faint_text)
+        self.assertIsNotNone(ratio)
+        gate = _evaluate_ink_density(ratio, self.DEFAULT_THRESHOLD)
+        self.assertFalse(gate["blocked"])
+        self.assertGreaterEqual(ratio, 0.02)
+
+    def test_real_text_passes(self):
+        ratio = _compute_ink_ratio(self.real_text_01)
+        self.assertIsNotNone(ratio)
+        gate = _evaluate_ink_density(ratio, self.DEFAULT_THRESHOLD)
+        self.assertFalse(gate["blocked"])
+        self.assertGreaterEqual(ratio, 0.02)
+
+    def test_none_image_fail_closed(self):
+        self.assertIsNone(_compute_ink_ratio(None))
+        gate = _evaluate_ink_density(None, self.DEFAULT_THRESHOLD)
+        self.assertTrue(gate["blocked"])
+        self.assertEqual(gate["reason"], "ink_density_unavailable")
+        self.assertIsNone(gate["ink_ratio"])
+
+    def test_small_crop_no_crash(self):
+        tiny = np.zeros((8, 10, 3), np.uint8)
+        ratio = _compute_ink_ratio(tiny)
+        self.assertIsNotNone(ratio)
+        gate = _evaluate_ink_density(ratio, self.DEFAULT_THRESHOLD)
+        self.assertIn("blocked", gate)
+
+
+class InkDensityGateIntegration(unittest.TestCase):
+    """Integration: _maybe_escalate_line with the ink-density gate active.
+
+    Proves that (1) transcribe() is never reached for blocked crops,
+    (2) None crops fail-close, (3) result is not mutated, and (4) the
+    persisted audit record matches BlockedEscalationEntry schema after
+    the save_escalations page merge (output_generator.py:155):
+    record = {"page": page_num, **entry}.
+    """
+
+    FAKE_PADDLE_TEXT = "ملفاتهوانار"
+
+    def _make_engine(self, call_counter=None):
+        class FakeEngine:
+            def transcribe(self, crop_img, fallback_text):
+                if call_counter is not None:
+                    call_counter[0] += 1
+                return {"text": fallback_text, "source": "paddle",
+                        "repeated_verbatim": False}
+        return FakeEngine()
+
+    def _make_result(self, text=None, confidence=0.30):
+        return {"text": text or self.FAKE_PADDLE_TEXT,
+                "confidence": confidence, "likely_noise": False}
+
+    def test_blank_skips_vision(self):
+        blank = cv2.imread(str(FIXTURE_DIR / "blank_white.png"))
+        calls = [0]
+        result = self._make_result()
+        escalations = _maybe_escalate_line(
+            self._make_engine(calls), result, blank, "verse_right",
+        )
+        self.assertEqual(calls[0], 0, "transcribe() must not be called for blank crop")
+        self.assertEqual(len(escalations), 1)
+        e = escalations[0]
+        self.assertEqual(e["source"], "ink_density_gate")
+        self.assertFalse(e["accepted"])
+
+    def test_none_skips_vision(self):
+        calls = [0]
+        result = self._make_result()
+        escalations = _maybe_escalate_line(
+            self._make_engine(calls), result, None, "full_width",
+        )
+        self.assertEqual(calls[0], 0, "transcribe() must not be called for None crop")
+        self.assertEqual(len(escalations), 1)
+        e = escalations[0]
+        self.assertEqual(e["reason"], "ink_density_unavailable")
+        self.assertIsNone(e["ink_ratio"])
+
+    def test_result_not_mutated(self):
+        blank = cv2.imread(str(FIXTURE_DIR / "blank_white.png"))
+        original_text = self.FAKE_PADDLE_TEXT
+        result = self._make_result()
+        _maybe_escalate_line(self._make_engine(), result, blank, "verse_left")
+        self.assertEqual(result["text"], original_text)
+
+    def test_audit_schema_after_page_merge(self):
+        blank = cv2.imread(str(FIXTURE_DIR / "blank_white.png"))
+        result = self._make_result(confidence=0.80)
+        escalations = _maybe_escalate_line(
+            self._make_engine(), result, blank, "verse_right",
+        )
+        self.assertEqual(len(escalations), 1)
+        entry = escalations[0]
+
+        # Emulate save_escalations merge: record = {"page": page_num, **entry}
+        record = {"page": 42, **entry}
+
+        self.assertIsInstance(record["page"], int)
+        self.assertIn(record["region"], ("verse_right", "verse_left", "full_width"))
+        self.assertIsInstance(record["paddle_text"], str)
+        self.assertIsNone(record["escalated_text"])
+        self.assertEqual(record["source"], "ink_density_gate")
+        self.assertFalse(record["repeated_verbatim"])
+        self.assertFalse(record["accepted"])
+        self.assertIn(record["reason"], ("blank_low_info", "low_ink_ratio", "ink_density_unavailable"))
+        self.assertTrue(record["ink_ratio"] is None or isinstance(record["ink_ratio"], float))
 
 
 if __name__ == "__main__":

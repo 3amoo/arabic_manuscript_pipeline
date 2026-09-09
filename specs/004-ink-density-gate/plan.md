@@ -28,6 +28,8 @@ Add an image-based ink-density gate that evaluates whether an OCR crop contains 
 
 **Scale/Scope**: Single function + gate logic in `_maybe_escalate_line()`. ~50-80 lines of production code. ~150-200 lines of tests. 1 new settings key.
 
+**Adaptive-threshold block sizing**: Hemistich crops are frequently < 51px tall, so the gate **clamps** `block_size` to an odd value `< min(h, w)` before calling `adaptive_binarize_gray()` (see research R2). `adaptive_binarize_gray()` already accepts an explicit `block_size` and forces it odd (`preprocessing.py:235-242`). No new binarization method is introduced (FR-005).
+
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*

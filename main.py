@@ -42,19 +42,89 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 from dotenv import load_dotenv
+import numpy as np
+import cv2
 
 # Flat layout: all pipeline modules live at the project root.
 from input_handler import InputHandler
 from ocr_engine import OCREngine
 from output_generator import OutputGenerator
 from vision_fallback import VisionFallbackEngine
-from preprocessing import preprocess_page, set_binarize_params, reset_binarize_params
+from preprocessing import (
+    preprocess_page, set_binarize_params, reset_binarize_params,
+    adaptive_binarize_gray, _BINARIZE_BLOCK_SIZE, _BINARIZE_C,
+)
 from surya_line_detector import SuryaLineDetector
 
 import page_layout_detector as layout
 import segment_text_rows as rowseg
 
 logger = logging.getLogger(__name__)
+
+_ink_density_threshold = 0.02
+
+
+def _compute_ink_ratio(crop_img_bgr) -> Optional[float]:
+    """
+    Measure the ink density of a crop image: the fraction of pixels that
+    binarize as ink (255) under the exact binarization the rest of the
+    pipeline uses (preprocessing.adaptive_binarize_gray ->
+    THRESH_BINARY_INV, ink=255/bg=0).
+
+    Returns a float in [0.0, 1.0], or None when the image is missing or
+    binarization fails (fail-closed: a None signals the caller to block
+    the escalation as "ink_density_unavailable").
+    """
+    if crop_img_bgr is None:
+        return None
+    try:
+        gray = cv2.cvtColor(crop_img_bgr, cv2.COLOR_BGR2GRAY)
+    except cv2.error:
+        return None
+
+    h, w = gray.shape[:2]
+    # adaptiveThreshold's neighborhood must stay within the image. Clamp
+    # block_size to an odd value derived from the smaller dimension so a
+    # tiny crop (e.g. 10x8) does not crash the binarizer (research.md R2).
+    safe_block = min(_BINARIZE_BLOCK_SIZE, max(3, min(h, w) - 2))
+    if safe_block % 2 == 0:
+        safe_block += 1
+
+    try:
+        binary = adaptive_binarize_gray(gray, block_size=safe_block, c=_BINARIZE_C)
+    except cv2.error:
+        return None
+
+    total = float(binary.size)
+    if total <= 0:
+        return None
+    return cv2.countNonZero(binary) / total
+
+
+def _evaluate_ink_density(ink_ratio: Optional[float],
+                          threshold: float) -> dict:
+    """
+    Pure ink-density decision (no I/O) - maps a measured (or missing) ink
+    ratio to a block/pass verdict, following data-model.md's decision
+    table:
+
+        ink_ratio None            -> blocked, "ink_density_unavailable"
+        ink_ratio <= 0.001        -> blocked, "blank_low_info"
+        0.001 < ink_ratio < thr   -> blocked, "low_ink_ratio"
+        ink_ratio >= threshold    -> passed,  reason None
+
+    Returns {"blocked": bool, "ink_ratio": float|None, "reason": str|None}.
+    """
+    if ink_ratio is None:
+        return {"blocked": True, "ink_ratio": None,
+                "reason": "ink_density_unavailable"}
+    if ink_ratio <= 0.001:
+        return {"blocked": True, "ink_ratio": ink_ratio,
+                "reason": "blank_low_info"}
+    if ink_ratio < threshold:
+        return {"blocked": True, "ink_ratio": ink_ratio,
+                "reason": "low_ink_ratio"}
+    return {"blocked": False, "ink_ratio": ink_ratio, "reason": None}
 
 
 def _should_escalate_line(vision_engine, paddle_text: str,
@@ -185,6 +255,30 @@ def _maybe_escalate_line(vision_engine, result: dict, crop_img, region: str) -> 
     escalations = []
     paddle_text = result["text"]
     paddle_confidence = result["confidence"]
+
+    # Ink-Density Gate (pre-API-call filter): a crop with negligible or
+    # no ink carries nothing worth transcribing, so it is blocked before
+    # any Vision call - recording an audit entry (source
+    # "ink_density_gate"), never mutating `result`. Fail-closed: a
+    # missing/unbinarizable image also blocks (ink_density_unavailable).
+    # The gate only applies to actual image crops (None or ndarray) -
+    # non-image placeholders from callers never reach the gate.
+    if crop_img is None or isinstance(crop_img, np.ndarray):
+        ink_ratio = _compute_ink_ratio(crop_img)
+        gate = _evaluate_ink_density(ink_ratio, _ink_density_threshold)
+        if gate["blocked"]:
+            escalations.append({
+                "region": region,
+                "paddle_text": result["text"],
+                "paddle_confidence": result["confidence"],
+                "escalated_text": None,
+                "source": "ink_density_gate",
+                "repeated_verbatim": False,
+                "accepted": False,
+                "reason": gate["reason"],
+                "ink_ratio": gate["ink_ratio"],
+            })
+            return escalations
 
     escalated = vision_engine.transcribe(crop_img, paddle_text)
 

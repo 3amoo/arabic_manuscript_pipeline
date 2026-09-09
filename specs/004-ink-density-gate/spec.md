@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-09
 
-**Status**: Draft
+**Status**: Reviewed
 
 **Input**: User description: "Add an ink-density gate before Vision escalation. Before sending a low-confidence OCR line to Vision, evaluate whether its image crop contains enough visual ink/content. If the crop is effectively blank or below the configured information threshold, do not call Vision."
 
@@ -147,7 +147,7 @@ The fixture set version (`v1`) is bumped when fixtures are added or replaced. Te
 
 ### Measurable Outcomes
 
-- **SC-001**: Using the `ink-density-fixtures-v1` fixture set, the ink-density gate blocks Vision calls for at least 90% of fixtures labeled `expected_block: true` (blank or near-blank crops with ink ratio < 0.5%).
+- **SC-001**: Using the `ink-density-fixtures-v1` fixture set, the ink-density gate blocks Vision calls for **100% of synthetic fixtures** labeled `expected_block: true` (deterministic images — no tolerance is justified), and **≥ 90% of real fixtures** labeled `expected_block: true` (blank or near-blank crops with ink ratio < 0.5%; the 10% allowance absorbs imperfect real-crop labeling/contrast).
 - **SC-002**: Using the `ink-density-fixtures-v1` fixture set, the ink-density gate produces zero false blocks on fixtures labeled `expected_block: false` (crops containing real Arabic text with measured ink ratio ≥ 2%).
 - **SC-003**: The number of Vision escalation attempts decreases by at least 10% on a deterministic fixture/stub run representing pages 24–26. Any live API observation is reported separately and is not used as a correctness baseline.
 - **SC-004**: All pre-existing regression tests pass unchanged, and all new ink-density gate tests pass.
@@ -157,7 +157,7 @@ The fixture set version (`v1`) is bumped when fixtures are added or replaced. Te
 ## Assumptions
 
 - The crop images passed to the escalation path are the same numpy arrays already available in `_maybe_escalate_line()` (the `crop_img` parameter). No additional image extraction is needed.
-- The existing `adaptive_binarize_gray` function in `preprocessing.py` can be applied to individual crops (it currently operates on page images, but the same adaptive threshold parameters work on crops). The function uses `cv2.THRESH_BINARY_INV`, producing 255 for ink (foreground) and 0 for background.
+- The existing `adaptive_binarize_gray` function in `preprocessing.py` can be applied to individual crops (it currently operates on page images). The gate **clamps `block_size` to an odd value < `min(h,w)`** before calling it — a `blockSize` larger than a crop dimension is not safe to pass to `cv2.adaptiveThreshold()` (see research R2). The function uses `cv2.THRESH_BINARY_INV`, producing 255 for ink (foreground) and 0 for background.
 - A default threshold of 2% ink is reasonable for typical Arabic manuscript crops. This is a starting point — operators will tune it based on measured false-block/false-pass rates on their specific manuscripts.
 - The ink-density gate operates on the crop image after any deskewing and preprocessing that already occurred. It does NOT re-preprocess.
 - Very faint text on aged manuscripts may have low ink density after binarization. The configurable threshold addresses this — operators can lower it for faint manuscripts.
