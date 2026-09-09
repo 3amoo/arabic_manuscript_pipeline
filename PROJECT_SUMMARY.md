@@ -41,7 +41,7 @@ input/عمود النسب نسخة 2.pdf (113 صفحة، بلا نصياً)
   │    • _run_paddle_batch: rec_only.predict() دفعات segment_batch_size=16
   │    • vision_fallback (اختياري): escalation للثقة < 0.55 + rotation عبر backends
   │    • فلتر noise (_is_noise_line) + إعادة compute بعد التصعيد
-  └─ output_generator.save_page() → raw_text/page_NNN.txt + إعادة بناء full_manuscript.txt
+  └─ output_generator.save_page() → raw_text/page_NNN.txt + إعادة بناء full_manuscript.txt من raw_text على القرص (2026-09-09)
 ```
 
 **تفاصيل صحيحة تستحق الحفظ (من الكود):**
@@ -124,10 +124,8 @@ len(tokens) >= 3 AND ratio(single_char_tokens) > 0.55
 - في المقابل `sovereign` أعاد «مقدمة» الصحيحة، و`gemini` أعاد «مقدمة» أيضًا.
 - **الدرس**: لا بوابة تقيس «هل القص ملوّن أصلًا؟» قبل إرسالها للرؤية. أي قصّة تقريبًا فارغة (صورة بيضاء/كشيدة) تذهب للرؤية وتفتح باب هلوسة. المقترح: حساب `ink_ratio` للقص (نسبة عدم-البياض) وعتبة صفرية — تعطيل الرؤية صفر قبل إنفاق حصة.
 
-### 4.3 الانهيار في `full_manuscript.txt` عند إعادة رن جزئي
-`save_page` يعيد بناء `full_manuscript` من `_page_texts` (ذاكرة العملية فقط):
-- **دليل فعلي**: `output/عمود النسب نسخة 2/raw_text/` يحتوي **113** صفحة، لكن `full_manuscript.txt` يحتوي فقط `نهاية الصفحة ×2` → 3 صفحات (24-26) من آخر رنّ بنطاق. **إعادة رن `--start 24 --end 26` تحذف الصفحات الأخرى من المستند الكامل** (رغم بقائها في `raw_text/`).
-- هذا **سلوك غير موثّق في `AGENTS.md` Output Contract** — يستحق إصلاحًا (إعادة بناء من `raw_text/` على القرص، لا من الذاكرة، أو استخدام merge/append).
+### 4.3 الانهيار في `full_manuscript.txt` عند إعادة رن جزئي — **Resolved (2026-09-09)**
+~~`save_page` يعيد بناء `full_manuscript` من `_page_texts` (ذاكرة العملية فقط)~~ — **أُصلح**: `_rewrite_full_manuscript()` الآن يقرأ ملفات `raw_text/page_NNN.txt` من القرص ويدمجها مع صفحات العملية الحالية (العملية الحالية تنتصر عند التداخل). `full_manuscript.txt` يعكس دائمًا كل صفحة محفوظة على القرص. كما استُبدلت الملفة المؤقتة الثابتة (`full_manuscript.txt.tmp`) بـ `tempfile.mkstemp()` لتوليد ملف فريد — آمن لعمليات إعادة البناء المتزامنة.
 
 ### 4.4 binarize المزدوجة (عقود مختلفة)
 - `layout.binarize()` → 0/255 (Otsu) — `page_layout_detector.py:177-188`.
@@ -169,7 +167,7 @@ len(tokens) >= 3 AND ratio(single_char_tokens) > 0.55
 1. **بوابة ink قبل الرؤية** (`vision_fallback.should_escalate` أو `main.py`): قصّ بكثافة حب غير بيضاء تحت عتبة → لا تصعيد + وسم `blank_low_info`. — يقضي على السبب الجذري للهلوسة §4.2 دون لمس OCR. **القياس**: عدد تصعيدات على crops فارغة قبل/بعد.
 2. **فلتر سطر بلا حرف عربي** — يقتل §4.1. **القياس**: أسطر الضجيج المتسربة قبل/بعد.
 3. **توحيد binarize** في `adaptiveThreshold` كتلة كبيرة موحّدة (AGENTS §4.2) — تلغي نسختين متعارفتين. **القياس**: CER + فحص التشكيل.
-4. **إصلاح `full_manuscript` *buildup من القرص*** — أو Append-mode بين نطاقات الـ range (لا استبدال جزئي). **القياس**: عدد الصفحات في الملف = عدد `raw_text/` بعد re-run.
+4. **~~إصلاح `full_manuscript` buildup من القرص~~** — **مُنجز (2026-09-09)**: يقرأ من `raw_text/` على القرص + atomic write فريد. **القياس**: عدد الصفحات في الملف = عدد `raw_text/` بعد re-run.
 5. **عزل `debug/` + إزالة DEBUG code** + ملف `.env.example`.
 6. **إصلاح `sync_vision_backends`** (جذر + sovereign + cohere 422 clearance).
 
@@ -221,7 +219,7 @@ len(tokens) >= 3 AND ratio(single_char_tokens) > 0.55
 4. لا تعيد إنشاء `src/` أو `config/` أو سطر `sys.path.insert`.
 5. أي تغيير OCR/معالجة → CER/WER قبل/بعد وإلا رفض (AGENTS §4.12، §11).
 6. لا تُقارن أسطر الـ Vision بين رنّات (غير حتمية) — الكاش الحتمي فقط.
-7. **لا يُعدّ `full_manuscript.txt` مرجعًا كاملاً إلا إذ كان رن كامل** — انتبه لمخاطر §4.3 في حال partial re-run.
+7. ~~**لا يُعدّ `full_manuscript.txt` مرجعًا كاملاً إلا إذ كان رن كامل** — انتبه لمخاطر §4.3 في حال partial re-run.~~ **Resolved (2026-09-09)**: `full_manuscript.txt` يُعاد بناؤه من `raw_text/` على القرص — أي رنّ جزئي يُكمل الملف بدل حذفه. Atomic write فريد يمنع التلوث في حال التشغيل المتزامن.
 8. **لا تُرسِل قصاصات شبه فارغة للرؤية** بعد تفعيل بوابة ink (مستقبلي).
 
 ---
@@ -250,7 +248,7 @@ len(tokens) >= 3 AND ratio(single_char_tokens) > 0.55
 | `ocr_engine.py` | batch 16 + كاش + rec_only | DEBUG code موجود |
 | `ocr_cache.py` | SQLite blake2b + model | autocommit |
 | `vision_fallback.py` | rotation + dead + repeated_verbatim | **لا بوابة ink**؛ google.generativeai deprecated |
-| `output_generator.py` | raw_text + full + escalations | **full manuscript ينكمش في partial re-run** |
+| `output_generator.py` | raw_text + full + escalations | **full manuscript يُعاد بناؤه من raw_text على القرص** — partial re-run لا يُفقد الصفحات السابقة (Resolved 2026-09-09: atomic write عبر tempfile.mkstemp unique) |
 | `review_manuscript.py` / `text_correction_engine.py` | مرحلة اختيارية منفصلة (اختيارية) | groq model stale في settings |
 | `surya_line_detector.py` | Surya خط (blocked) | غير مثبت |
 | `sync_vision_backends.py` | صيانة backends | defaults مكسورة؛ no sovereign |

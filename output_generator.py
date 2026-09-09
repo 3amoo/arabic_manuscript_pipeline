@@ -9,6 +9,12 @@ On a slow CPU run, the old behavior meant nothing appeared on disk until
 the whole book was done - no way to check progress, and a crash midway
 lost every already-processed page since they only lived in memory.
 
+DISK-BASED REBUILD: _rewrite_full_manuscript() now reads all
+page_NNN.txt files from the raw_text/ directory on disk and merges
+them with the current run's in-memory pages (current run wins on
+overlap). This means partial runs no longer lose prior pages — the
+full_manuscript.txt always reflects every page ever saved to disk.
+
 save_escalations() (new): a separate, append-only per-document review
 log of every vision-fallback escalation that actually replaced PaddleOCR
 text (see main.py's extract_poetry_region() docstring for why this
@@ -20,11 +26,27 @@ text itself.
 """
 
 import json
+import os
+import re
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 import logging
 
 logger = logging.getLogger(__name__)
+
+SEPARATOR = "\n\n--- نهاية الصفحة ---\n\n"
+
+
+def _extract_text_body(content: str) -> str:
+    """Strip header lines and following blank lines from a raw_text page file."""
+    lines = content.split('\n')
+    i = 0
+    while i < len(lines) and lines[i].startswith('#'):
+        i += 1
+    while i < len(lines) and lines[i].strip() == '':
+        i += 1
+    return '\n'.join(lines[i:])
 
 
 class OutputGenerator:
@@ -80,14 +102,42 @@ class OutputGenerator:
         return doc_dir
 
     def _rewrite_full_manuscript(self, document_name: str, doc_dir: Path) -> None:
-        pages = self._page_texts.get(document_name, {})
-        ordered_text = [pages[num] for num in sorted(pages)]
+        raw_dir = doc_dir / 'raw_text'
+        disk_pages = {}
+
+        if raw_dir.is_dir():
+            for f in raw_dir.glob('page_*.txt'):
+                m = re.match(r'^page_(\d{3})\.txt$', f.name)
+                if not m:
+                    continue
+                page_num = int(m.group(1))
+                content = f.read_text(encoding='utf-8')
+                disk_pages[page_num] = _extract_text_body(content)
+
+        current_run = self._page_texts.get(document_name, {})
+        merged = {**disk_pages, **current_run}
+
+        if not merged:
+            logger.warning(f"No pages found for {document_name} — "
+                           f"full_manuscript.txt will be empty")
+            ordered_text = []
+        else:
+            ordered_text = [merged[num] for num in sorted(merged)]
 
         final_file = doc_dir / 'full_manuscript.txt'
-        final_file.write_text(
-            "\n\n--- نهاية الصفحة ---\n\n".join(ordered_text),
-            encoding='utf-8',
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            suffix='.txt', prefix='.full_manuscript_', dir=str(doc_dir),
         )
+        try:
+            with os.fdopen(tmp_fd, 'w', encoding='utf-8') as tmp_file:
+                tmp_file.write(SEPARATOR.join(ordered_text))
+            Path(tmp_path).replace(final_file)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def save_escalations(self, document_name: str, page_num: int,
                           escalations: List[Dict[str, Any]]) -> Path:
