@@ -71,7 +71,15 @@ class TextProcessor:
             PermissionError: If file is not readable
             UnicodeDecodeError: If encoding issues persist after fallback
         """
-        pass  # Implementation in Phase 3
+        try:
+            with open(self.file_path, 'r', encoding='utf-8') as f:
+                self.content = f.read()
+                return self.content
+        except UnicodeDecodeError:
+            # Fallback to latin-1 (iso-8859-1) for compatibility
+            with open(self.file_path, 'r', encoding='latin-1') as f:
+                self.content = f.read()
+                return self.content
     
     def extract_text(self) -> str:
         """
@@ -84,7 +92,16 @@ class TextProcessor:
             - clean_ground_truth() for ground_truth files
             - clean_pipeline_output() for pipeline_output files
         """
-        pass  # Implementation in Phase 3
+        # Ensure file is loaded
+        if not self.content:
+            self.load_file()
+        
+        if self.text_type == "ground_truth":
+            self.extracted_text = self.clean_ground_truth()
+        else:
+            self.extracted_text = self.clean_pipeline_output()
+        
+        return self.extracted_text
     
     def clean_ground_truth(self) -> str:
         """
@@ -97,7 +114,26 @@ class TextProcessor:
         Returns:
             Cleaned ground truth text as single string with newline-separated verses
         """
-        pass  # Implementation in Phase 3
+        if not self.content:
+            self.load_file()
+        
+        lines = self.content.splitlines()
+        cleaned_lines = []
+        
+        # Patterns are defined at module level
+        import re
+        
+        for line in lines:
+            # Skip empty lines (verse separators)
+            if re.match(EMPTY_LINE_PATTERN, line):
+                continue
+            
+            # Remove Arabic numeral prefix if present
+            cleaned_line = re.sub(ARABIC_NUMERAL_PATTERN, '', line)
+            cleaned_lines.append(cleaned_line)
+        
+        # Join with newline separator
+        return TEXT_CONCATENATION_SEPARATOR.join(cleaned_lines)
     
     def clean_pipeline_output(self) -> str:
         """

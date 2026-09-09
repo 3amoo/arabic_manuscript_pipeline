@@ -5,6 +5,7 @@ pyyaml>=6.0
 Pillow>=10.0.0
 paddlepaddle-gpu
 paddleocr
+jiwer>=2.5.0
 python-dotenv>=1.0.0
 
 # Optional: only needed if settings.yaml's layout_detection.line_detector

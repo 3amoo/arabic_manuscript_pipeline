@@ -1,0 +1,31 @@
+============================================================
+CER/WER Benchmark Report
+============================================================
+Generated: 2026-09-07 22:10:49
+
+Input Files:
+  Ground Truth: عمود_النسب.clean.md
+  Pipeline Output: output/عمود النسب نسخة 2/full_manuscript.txt
+
+Metrics:
+----------------------------------------
+Character Error Rate (CER): 0.9425 (94.25%)
+Word Error Rate (WER): 0.9838 (98.38%)
+
+Character Counts:
+  Ground Truth: 45,664 characters
+  Pipeline Output: 2,803 characters
+  Length Difference: 93.86%
+
+Word Counts (WER basis):
+  Ground Truth: 5,993 words
+  Pipeline Output: 425 words
+
+Warnings:
+----------------------------------------
+1. Significant length difference detected: ground truth=45664 chars, pipeline=2803 chars (difference: 93.9% > 20% threshold)
+
+============================================================
+Note: CER/WER calculations preserve all linguistic features
+including diacritics, punctuation, and whitespace (FR-010)
+============================================================

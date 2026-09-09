@@ -19,6 +19,18 @@ env/
 venv/
 ENV/
 *.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg
+.mypy_cache/
+*.log
+
+# Ground Truth cleanup output files
+*.clean.md
+*.anomalies.txt
 
 # IDE
 .vscode/
