@@ -25,14 +25,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-# -- project imports (flat layout) --
+# -- project imports --
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import page_layout_detector as layout
-import segment_text_rows as rowseg
-from input_handler import InputHandler
-from ocr_cache import OCRCache, _hash_image
-from preprocessing import (
+import src.pipeline.preprocessing.page_layout_detector as layout
+import src.pipeline.preprocessing.segment_text_rows as rowseg
+from src.pipeline.ingestion.input_handler import InputHandler
+from src.pipeline.ocr.ocr_cache import OCRCache, _hash_image
+from src.pipeline.preprocessing.preprocessing import (
     preprocess_page,
     adaptive_binarize_gray,
     _BINARIZE_BLOCK_SIZE,
@@ -45,8 +45,8 @@ from main import _compute_ink_ratio
 # -- constants --
 CONFIDENCE_THRESHOLD = 0.55  # same as settings.yaml vision_fallback.confidence_threshold
 MODEL_KEY = "arabic_PP-OCRv5_mobile_rec"  # must match ocr_engine.py default
-CACHE_DB = "output/.cache/ocr_cache.sqlite3"
-PDF_PATH = Path("input/عمود النسب نسخة 2.pdf")
+CACHE_DB = "data/output/.cache/ocr_cache.sqlite3"
+PDF_PATH = Path("data/input/عمود النسب نسخة 2.pdf")
 OUTPUT_DIR = Path(__file__).parent
 MEASUREMENTS_FILE = OUTPUT_DIR / "calibration-measurements.jsonl"
 
@@ -155,7 +155,7 @@ def main():
 
     # -- load PDF pages --
     print(f"Loading {PDF_PATH.name} ...")
-    handler = InputHandler(input_dir="input", enable_direct_text_extraction=True)
+    handler = InputHandler(input_dir="data/input", enable_direct_text_extraction=True)
     pages = handler.load_file(PDF_PATH, dpi=200)
     print(f"Loaded {len(pages)} pages.")
 
