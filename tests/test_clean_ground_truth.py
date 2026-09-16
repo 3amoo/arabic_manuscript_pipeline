@@ -4,13 +4,9 @@
 import pytest
 import tempfile
 import sys
-import os
 from pathlib import Path
 
-# Add the parent directory to sys.path to import clean_ground_truth
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import clean_ground_truth
+import src.pipeline.evaluation.clean_ground_truth as clean_ground_truth
 
 
 def test_split_into_verse_blocks():
@@ -87,7 +83,7 @@ def test_fixture_processing():
     assert verse_block.heading == "## البيت 1"
     
     # Extract hemistichs (need to strip callouts first)
-    from clean_ground_truth import strip_callout_blocks, extract_hemistichs
+    from src.pipeline.evaluation.clean_ground_truth import strip_callout_blocks, extract_hemistichs
     cleaned_content = strip_callout_blocks(verse_block.raw_content)
     first, second = extract_hemistichs(cleaned_content)
     assert first is not None
@@ -106,7 +102,7 @@ def test_main_file_integration():
     # This test will verify that the actual file has 620 verses
     # Note: This test doesn't run the actual script, but verifies the structure
     
-    source_path = Path(__file__).parent.parent / "ground_truth" / "عمود النسب" / "عمود_النسب.md"
+    source_path = Path(__file__).parent.parent / "data" / "ground_truth" / "عمود النسب" / "عمود_النسب.md"
     assert source_path.exists(), f"Source file not found: {source_path}"
     
     with open(source_path, 'r', encoding='utf-8') as f:
@@ -140,7 +136,7 @@ def test_generalization_different_structure():
     assert verse_numbers == ["٥", "١٠", "١٥", "غير_مرقم", "٢٠-أ"]
     
     # Test processing of each verse
-    from clean_ground_truth import strip_callout_blocks, extract_hemistichs
+    from src.pipeline.evaluation.clean_ground_truth import strip_callout_blocks, extract_hemistichs
     for verse_block in blocks:
         # Extract hemistichs (strip callouts first)
         cleaned_content = strip_callout_blocks(verse_block.raw_content)
@@ -163,7 +159,7 @@ def test_generalization_different_structure():
     # Run the actual script
     import subprocess
     result = subprocess.run(
-        [sys.executable, "clean_ground_truth.py", "--source", str(fixture_path), "--output", str(output_path)],
+        [sys.executable, "src/pipeline/evaluation/clean_ground_truth.py", "--source", str(fixture_path), "--output", str(output_path)],
         cwd=Path(__file__).parent.parent,
         capture_output=True,
         text=True
@@ -199,7 +195,7 @@ def test_idempotency():
         
         # Run the script first time
         result1 = subprocess.run(
-            [sys.executable, "clean_ground_truth.py", "--source", str(test_source), 
+            [sys.executable, "src/pipeline/evaluation/clean_ground_truth.py", "--source", str(test_source), 
              "--output", str(test_output)],
             cwd=Path(__file__).parent.parent,
             capture_output=True,
@@ -214,7 +210,7 @@ def test_idempotency():
         
         # Run the script second time
         result2 = subprocess.run(
-            [sys.executable, "clean_ground_truth.py", "--source", str(test_source), 
+            [sys.executable, "src/pipeline/evaluation/clean_ground_truth.py", "--source", str(test_source), 
              "--output", str(test_output)],
             cwd=Path(__file__).parent.parent,
             capture_output=True,
@@ -238,7 +234,7 @@ def test_idempotency():
 
 def test_anomaly_detection_missing_hemistich():
     """Test detection of verses with missing hemistichs."""
-    from clean_ground_truth import extract_hemistichs, strip_callout_blocks
+    from src.pipeline.evaluation.clean_ground_truth import extract_hemistichs, strip_callout_blocks
     
     # Test case: only one hemistich (properly formatted with > ** markers)
     content = """> **البيت الأول من الشطر الأول**  
@@ -263,7 +259,7 @@ def test_anomaly_detection_missing_hemistich():
 
 def test_anomaly_detection_duplicate_verse_number():
     """Test that duplicate verse numbers can be detected."""
-    from clean_ground_truth import split_into_verse_blocks
+    from src.pipeline.evaluation.clean_ground_truth import split_into_verse_blocks
     
     content = """## البيت ١
 محتوى البيت الأول
@@ -291,7 +287,7 @@ def test_malformed_fixture_processing():
     with open(fixture_path, 'r', encoding='utf-8') as f:
         content = f.read()
     
-    from clean_ground_truth import split_into_verse_blocks, strip_callout_blocks, extract_hemistichs
+    from src.pipeline.evaluation.clean_ground_truth import split_into_verse_blocks, strip_callout_blocks, extract_hemistichs
     blocks = split_into_verse_blocks(content)
     
     # Should find 7 verse blocks
@@ -339,7 +335,7 @@ def test_anomaly_report_creation():
         # Run the script with the malformed fixture
         # With Phase 4 implementation, script should process with anomalies
         result = subprocess.run(
-            [sys.executable, "clean_ground_truth.py", "--source", str(test_source), 
+            [sys.executable, "src/pipeline/evaluation/clean_ground_truth.py", "--source", str(test_source), 
              "--output", str(test_output), "--report", str(test_report)],
             cwd=Path(__file__).parent.parent,
             capture_output=True,

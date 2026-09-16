@@ -11,11 +11,11 @@ from pathlib import Path
 
 import yaml
 
-from morphological_verifier import MorphologicalVerifier
+from src.pipeline.correction.morphological_verifier import MorphologicalVerifier
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-OUTPUT_ROOT = PROJECT_ROOT / "output"
-SETTINGS_PATH = PROJECT_ROOT / "settings.yaml"
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+OUTPUT_ROOT = PROJECT_ROOT / "data" / "output"
+SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.yaml"
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)

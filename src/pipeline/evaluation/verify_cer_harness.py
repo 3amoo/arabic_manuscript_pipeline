@@ -5,7 +5,7 @@ Builds a synthetic GT and raw page with KNOWN differences in a temp dir,
 runs evaluate_cer.py via subprocess, and asserts the reported aggregate
 CER/WER match hand-computed values. Proves normalization + jiwer wiring +
 exit codes work. It does NOT validate any ground truth (there is no GT
-yet - see ground_truth/README.md fill-status table).
+yet - see data/ground_truth/README.md fill-status table).
 
 Synthetic math (default strip mode, ref 31 chars / 5 words):
   ref:  السلامُ عليكم ورحمةُ الله وبركاته   (tashkeel stripped -> 31 chars)
@@ -23,7 +23,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-PYTHON = "myenv/bin/python"
+PYTHON = str(Path(__file__).resolve().parents[3] / "myenv" / "bin" / "python")
+EVALUATE_CER = str(Path(__file__).resolve().parent / "evaluate_cer.py")
 DOC = "عمود النسب نسخة 2"
 GT_REF = """السلامُ عليكم ورحمةُ الله
 وَبَرَكَاتُه
@@ -40,7 +41,7 @@ RAW_HYP = """# Page 001
 
 def run_scorer(tmp: Path, pages: str, diacritics: str = "strip"):
     return subprocess.run(
-        [PYTHON, "evaluate_cer.py",
+        [PYTHON, EVALUATE_CER,
          "--document", DOC, "--pages", pages,
          "--diacritics", diacritics,
          "--output-root", str(tmp / "output"),

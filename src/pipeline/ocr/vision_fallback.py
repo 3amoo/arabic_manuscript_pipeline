@@ -69,7 +69,7 @@ from typing import Any, Dict, List, Optional
 import cv2
 import numpy as np
 
-from repeated_verbatim_tracker import RepeatedVerbatimTracker
+from src.pipeline.correction.repeated_verbatim_tracker import RepeatedVerbatimTracker
 
 logger = logging.getLogger(__name__)
 
@@ -779,7 +779,7 @@ class VisionFallbackEngine:
         # repeated_verbatim_tracker.py + CHANGELOG.md for the full
         # investigation.
         self._repeated_tracker = RepeatedVerbatimTracker(
-            db_path=config.get("repeated_verbatim_db", "output/.cache/repeated_verbatim.sqlite3"),
+            db_path=config.get("repeated_verbatim_db", "data/output/.cache/repeated_verbatim.sqlite3"),
             enabled=self.enabled,
         )
 

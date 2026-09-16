@@ -44,26 +44,17 @@ from pathlib import Path
 
 import yaml
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
-# BUG FIX: this used to insert PROJECT_ROOT / "src" onto sys.path and read
-# settings.yaml / prompts.yaml from a config/ subfolder. This project is a
-# FLAT layout (see README.md / main.py's load_config() docstring for the
-# same fix applied there) - there is no src/ folder, and settings.yaml /
-# prompts.yaml live directly at the project root next to this file. The old
-# paths silently resolved to nonexistent locations: load_yaml() returns {}
-# for a missing file rather than raising, so this script was running with
-# an always-empty settings dict (engine.enabled forced False regardless of
-# the real settings.yaml) and an always-missing prompt template (which then
-# hit the explicit sys.exit(1) below on every single run). No sys.path
-# insertion is needed either, for the same reason main.py doesn't need one:
-# every module already lives next to this file, which Python searches by
-# default.
-from text_correction_engine import TextCorrectionEngine
+# Paths are resolved relative to the project root (three levels up from
+# this file, i.e. src/pipeline/output/ -> project root) so this script
+# works regardless of where it's invoked from. settings.yaml / prompts.yaml
+# live in config/, outputs in data/output/.
+from src.pipeline.correction.text_correction_engine import TextCorrectionEngine
 
-SETTINGS_PATH = PROJECT_ROOT / "settings.yaml"
-PROMPTS_PATH = PROJECT_ROOT / "prompts.yaml"
-OUTPUT_ROOT = PROJECT_ROOT / "output"
+SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.yaml"
+PROMPTS_PATH = PROJECT_ROOT / "config" / "prompts.yaml"
+OUTPUT_ROOT = PROJECT_ROOT / "data" / "output"
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)

@@ -72,7 +72,7 @@ from ruamel.yaml import YAML
 # ---------------------------------------------------------------------------
 
 DEFAULT_SETTINGS_PATH = Path("config/settings.yaml")
-DEFAULT_VISION_MODULE_PATH = Path("vision_fallback.py")
+DEFAULT_VISION_MODULE_PATH = Path(__file__).parent / "vision_fallback.py"
 
 # Preferred rotation order when everything is available. Providers whose
 # key is missing, whose API call fails, or who have zero vision-capable

@@ -39,7 +39,7 @@ from typing import Dict, Any, Optional
 import logging
 from paddleocr import PaddleOCR
 
-from ocr_cache import OCRCache
+from src.pipeline.ocr.ocr_cache import OCRCache
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ class OCREngine:
         self.cache: Optional[OCRCache] = None
         if caching_cfg.get('enabled', True):
             self.cache = OCRCache(
-                db_path=caching_cfg.get('db_path', 'output/.cache/ocr_cache.sqlite3'),
+                db_path=caching_cfg.get('db_path', 'data/output/.cache/ocr_cache.sqlite3'),
                 model_key=rec_model,
             )
 

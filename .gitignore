@@ -1,13 +1,13 @@
 # API keys
 echo ".env" >> .gitignore
 
-# Input/Output
-input/
-output/
-temp/
+# Input/Output (under data/)
+data/input/
+data/output/
+data/temp/
 
 # Logs
-logs/
+data/logs/
 
 # Python
 __pycache__/
@@ -54,7 +54,7 @@ myenv/
 
 # Debug artifacts
 debug/
-archive/
+data/archive/
 
 # Local baseline snapshots (not tracked - compare-only artifacts)
 specs/004-ink-density-gate/pre-gate-baseline/

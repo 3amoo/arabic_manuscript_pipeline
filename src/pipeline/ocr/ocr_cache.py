@@ -75,7 +75,7 @@ class OCRCache:
     """
     Config keys, under config['caching'] in settings.yaml's ocr section:
         enabled: bool           - default True
-        db_path: str            - default "output/.cache/ocr_cache.sqlite3"
+        db_path: str            - default "data/output/.cache/ocr_cache.sqlite3"
 
     One OCRCache instance is created once by OCREngine and reused for the
     whole run (same lifetime as the PaddleOCR models themselves) - not
@@ -89,7 +89,7 @@ class OCRCache:
     lose it all because nothing was ever committed.
     """
 
-    def __init__(self, db_path: str = "output/.cache/ocr_cache.sqlite3",
+    def __init__(self, db_path: str = "data/output/.cache/ocr_cache.sqlite3",
                  model_key: str = "default"):
         self.model_key = model_key
         self.hits = 0

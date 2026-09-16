@@ -63,7 +63,7 @@ class RepeatedVerbatimTracker:
     """
     Config key, under config['vision_fallback'] in settings.yaml:
         repeated_verbatim_db: str   - default
-                                       "output/.cache/repeated_verbatim.sqlite3"
+"data/output/.cache/repeated_verbatim.sqlite3"
 
     Same SQLite conventions as ocr_cache.py: autocommit (isolation_level
     = None) so every occurrence is durable immediately - a crash on page
@@ -74,7 +74,7 @@ class RepeatedVerbatimTracker:
     the caller falls back to the old behavior with zero extra I/O.
     """
 
-    def __init__(self, db_path: str = "output/.cache/repeated_verbatim.sqlite3",
+    def __init__(self, db_path: str = "data/output/.cache/repeated_verbatim.sqlite3",
                  enabled: bool = True):
         self.enabled = enabled
         self.repeated_this_run = 0

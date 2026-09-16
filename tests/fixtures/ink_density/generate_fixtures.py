@@ -17,7 +17,7 @@ import os
 import cv2
 import numpy as np
 
-from preprocessing import adaptive_binarize_gray
+from src.pipeline.preprocessing.preprocessing import adaptive_binarize_gray
 
 FIXTURE_DIR = os.path.dirname(os.path.abspath(__file__))
 MANIFEST_PATH = os.path.join(FIXTURE_DIR, "fixtures.json")

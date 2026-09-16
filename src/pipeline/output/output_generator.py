@@ -51,7 +51,7 @@ def _extract_text_body(content: str) -> str:
 
 class OutputGenerator:
     def __init__(self, config: Dict[str, Any]):
-        self.base_dir = Path(config.get('base_directory', 'output'))
+        self.base_dir = Path(config.get('base_directory', 'data/output'))
         # صفحات كل مستند بترتيبها لحد دلوقتي، عشان نقدر نعيد بناء
         # full_manuscript.txt من الذاكرة على طول من غير ما نعيد قراءة
         # كل ملفات الصفحات من القرص في كل مرة (ده كان هيبقى O(n^2) IO

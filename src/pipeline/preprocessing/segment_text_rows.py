@@ -72,7 +72,7 @@ def binarize(image_bgr):
     on Arabic manuscript scans (see AGENTS.md §4.2).
     Returns 0/1 binary mask (for the row-segmentation logic).
     """
-    from preprocessing import adaptive_binarize
+    from src.pipeline.preprocessing.preprocessing import adaptive_binarize
 
     binary = adaptive_binarize(image_bgr)
     return (binary > 0).astype(np.uint8)

@@ -4,7 +4,34 @@
 
 كل سطر: **الملف** — إيه اللي اتغيّر (إضافة/تعديل/حذف) وليه، باختصار شديد.
 
-## 2026-09-06
+## 2026-09-10
+
+- **new: ink-density gate (spec 004) — pre-API-call filter قبل وضع الـ Vision**
+  بوابة كثافة الحبر في `_maybe_escalate_line()` في `main.py` + اختبارات في
+  `tests/test_escalation_policy.py` (23 اختبارًا جديدًا: InkDensityGate /
+  InkDensityGateIntegration / InkDensityGateConfig + قسما التكامل) +
+  `settings.yaml` (`vision_fallback.ink_density_threshold`، افتراضي 0.02).
+  - الفكرة: قبل أي نداء Vision لسطر منخفض الثقة، تُقاس نسبة بكسلات الحبر
+    (binarization → ink=255/bg=0) على الـ crop؛ إن كانت أقل من الحد تُحجب
+    المحاولة ويُسجَّل قيد تدقيق (`source: ink_density_gate`،
+    `escalated_text: null`، `ink_ratio`، `reason` من ثلاثة رموز) — Fail-closed
+    عند صورة مفقودة/غير قابلة للثنائية. لا تُغيَّر `result["text"]` (§FR-007)
+    ولا أي سلوك للبوابات القائمة (§FR-010) ولا مفتاح الكاش.
+  - **نتيجة المعايرة (صادقة، ليست تسويقية)**: قُيست 3,629 crop على كل الـ 113
+    صفحة (`specs/004-ink-density-gate/calibrate_ink_density.py`).
+    الـ 9 crops الوحيدة المرشحة للتصعيد (ثقة <0.55) كلها فوق 0.02
+    (حبر 0.054–0.357) ⇒ **البوابة تحجب 0 من 9** ولا تُقلِّل نداءات Vision
+    فعليًا على هذا المخطوط. الغرض الحقيقي دفاعي: حجب الصفحات الفارغة/المفقودة
+    (أخطاء مسح، صفحات ناقصة) في مخطوطات قادمة، وليست معالجة لنمط ضجيج هذا
+    المخطوط (علامات مائية/تطويل — حبر مرتفع بلا نص مقروء). بقي الحد 0.02
+    كما هو، والنتيجة موثقة في تعليق `settings.yaml`.
+  - الأداء: ~0.16 ms/crop (هدف <50 ms، هامش ~300×). القياس الكامل في
+    `specs/004-ink-density-gate/research.md` §Performance.
+  - ملاحظة نزاهة: `SC-003` (تخفيض ≥10% في نداءات transcribe على صفحات
+    24–26) **غير متحقَّق** — المعايرة فندت افتراضها (لا توجد crops فارغة
+    تستحق الحجب)، ونموذج `InkDensityGateStub` المذكور في quickstart V7 لم
+    يُبنَ قط. يُوثَّق هذا صراحةً في quickstart/research ولا يُدَّعى أنه
+    حاصل.
 
 - **new: bootstrap_ground_truth.py + evaluate_cer.py (بوابة GT) + tests/** —
   واجهة إنتاج أرضية GT (Phase 4 §8، رفع الحاجز المتبقي أمام §4.12):

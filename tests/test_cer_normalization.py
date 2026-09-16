@@ -10,7 +10,7 @@ Run with:  myenv/bin/python -m unittest tests.test_cer_normalization -v
 
 import unittest
 
-from evaluate_cer import has_usable_gt_content, normalize_text
+from src.pipeline.evaluation.evaluate_cer import has_usable_gt_content, normalize_text
 
 
 class Normalization(unittest.TestCase):

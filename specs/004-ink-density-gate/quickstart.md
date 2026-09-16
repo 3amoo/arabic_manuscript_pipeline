@@ -87,3 +87,17 @@ myenv/bin/python -m unittest tests.test_escalation_policy.InkDensityGateStub -v
 ```
 
 **Expected**: A stub/mock vision engine records how many times `transcribe()` is called. With the gate enabled, the call count decreases by ≥10% compared to gate-disabled baseline on the fixture set representing pages 24–26.
+
+---
+
+## Validation Log (T019, 2026-09-10)
+
+| Scenario | Result | Notes |
+|---|---|---|
+| V1 — Unit tests (InkDensityGate) | **PASS** | 7/7 OK: blank blocked, kashida/punctuation blocked, faint passes, real text passes, `None` fail-closed, small crop no crash. |
+| V2 — Integration (InkDensityGateIntegration) | **PASS** | 4/4 OK: blank and `None` skip Vision, `result["text"]` not mutated, audit schema valid. |
+| V3 — Regression (full test_escalation_policy) | **PASS** | 32/32 OK — all 16 pre-existing tests unchanged, 16 new gate/config tests additive. |
+| V4 — Pipeline smoke (pages 24–26) | **PASS** | Exit 0. `full_manuscript.txt`, `raw_text/page_024..026.txt`, and `escalations.jsonl` all byte-identical to the pre-gate baseline snapshot. 100% OCR cache hits; 0 Vision escalations this run. |
+| V5 — Threshold tuning | **PASS** (mechanism) | Config flip 0.02 → 0.005 verified read at startup (`override read: 0.005000`) and restored to 0.02. Full manual pipeline run at 0.005 NOT repeated: on this manuscript the gate blocks 0 crops at either threshold (calibration), so output would not change — the knob's behavior is covered by `InkDensityGateConfig` unit tests (T013) and the read-path check above. |
+| V6 — Audit trail | **PASS** (audit path) | 33 live entries in `escalations.jsonl`; **0** with `source: ink_density_gate` — consistent with calibration (0 blocks on this manuscript). Audit schema/write path verified by `InkDensityGateIntegration.test_audit_schema_after_page_merge`; the `--start 24 --end 26` run writes every dict verbatim via `save_escalations()`. |
+| V7 — Deterministic stub (SC-003) | **NOT VERIFIED / N/A** | `InkDensityGateStub` was never built (not implemented, not run). Criterion not met — see SC-003 explanation in `research.md` §Validation Summary. |

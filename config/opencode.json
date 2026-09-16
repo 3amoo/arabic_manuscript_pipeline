@@ -19,7 +19,7 @@
         },
         "deepseek-v3.1-terminus": {
           "name": "DeepSeek V3.1 Terminus"
-        },
+        }
       }
     }
   }

@@ -11,11 +11,9 @@ T012: Test CER/WER calculation correctness (fails initially per TDD)
 import re
 import subprocess
 import sys
-import os
 from pathlib import Path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from benchmark_cer_wer import ARABIC_NUMERAL_PATTERN, PAGE_SEPARATOR_PATTERN, TextProcessor, CERWERCalculator
+from src.pipeline.evaluation.benchmark_cer_wer import ARABIC_NUMERAL_PATTERN, PAGE_SEPARATOR_PATTERN, TextProcessor, CERWERCalculator
 
 
 def test_arabic_numeral_pattern():
@@ -152,7 +150,7 @@ def test_clean_ground_truth_handles_complex_scenarios(tmp_path):
 
 def _run_benchmark(gt_path, hyp_path):
     """Helper: run benchmark_cer_wer.py as subprocess, return (stdout, stderr, exit_code)."""
-    script = Path(__file__).resolve().parent.parent / "benchmark_cer_wer.py"
+    script = Path(__file__).resolve().parent.parent / "src" / "pipeline" / "evaluation" / "benchmark_cer_wer.py"
     result = subprocess.run(
         [sys.executable, str(script), str(gt_path), str(hyp_path)],
         capture_output=True, text=True, timeout=30,
@@ -162,7 +160,7 @@ def _run_benchmark(gt_path, hyp_path):
 
 def _run_benchmark_with_args(*args):
     """Helper: run benchmark_cer_wer.py with arbitrary extra args."""
-    script = Path(__file__).resolve().parent.parent / "benchmark_cer_wer.py"
+    script = Path(__file__).resolve().parent.parent / "src" / "pipeline" / "evaluation" / "benchmark_cer_wer.py"
     cmd = [sys.executable, str(script)] + list(args)
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     return result.stdout, result.stderr, result.returncode
@@ -297,7 +295,7 @@ def test_t033_reproducibility_identical_inputs(tmp_path):
 
 def test_t035_integration_full_pipeline_flow(tmp_path):
     """T035: Full TextProcessor → CERWERCalculator → BenchmarkReport integration."""
-    from benchmark_cer_wer import BenchmarkReport
+    from src.pipeline.evaluation.benchmark_cer_wer import BenchmarkReport
 
     gt = tmp_path / "int_gt.txt"
     hyp = tmp_path / "int_hyp.txt"
@@ -338,8 +336,8 @@ def test_t035_integration_full_pipeline_flow(tmp_path):
 
 def test_t037_integration_with_pipeline_output():
     """T037: Tool works with actual pipeline output (output/<doc>/full_manuscript.txt)."""
-    gt_path = Path("ground_truth/عمود النسب/عمود_النسب.clean.md")
-    hyp_path = Path("output/عمود النسب نسخة 2/full_manuscript.txt")
+    gt_path = Path("data/ground_truth/عمود النسب/عمود_النسب.clean.md")
+    hyp_path = Path("data/output/عمود النسب نسخة 2/full_manuscript.txt")
 
     if not gt_path.exists() or not hyp_path.exists():
         import pytest
@@ -354,8 +352,8 @@ def test_t037_integration_with_pipeline_output():
 
 def test_t034_quickstart_basic_usage():
     """T034a: Quickstart basic usage example (Step 2) works successfully."""
-    gt_path = Path("ground_truth/عمود النسب/عمود_النسب.clean.md")
-    hyp_path = Path("output/عمود النسب نسخة 2/full_manuscript.txt")
+    gt_path = Path("data/ground_truth/عمود النسب/عمود_النسب.clean.md")
+    hyp_path = Path("data/output/عمود النسب نسخة 2/full_manuscript.txt")
 
     if not gt_path.exists() or not hyp_path.exists():
         import pytest
@@ -368,8 +366,8 @@ def test_t034_quickstart_basic_usage():
 
 def test_t034_quickstart_with_output_file(tmp_path):
     """T034b: Quickstart --output flag creates report file."""
-    gt_path = Path("ground_truth/عمود النسب/عمود_النسب.clean.md")
-    hyp_path = Path("output/عمود النسب نسخة 2/full_manuscript.txt")
+    gt_path = Path("data/ground_truth/عمود النسب/عمود_النسب.clean.md")
+    hyp_path = Path("data/output/عمود النسب نسخة 2/full_manuscript.txt")
 
     if not gt_path.exists() or not hyp_path.exists():
         import pytest
@@ -397,7 +395,7 @@ def test_t031_error_messages_match_contract():
     assert "File not found" in combined or "not found" in combined.lower()
 
     # Second file missing (gt exists, hyp doesn't)
-    gt_path = Path("ground_truth/عمود النسب/عمود_النسب.clean.md")
+    gt_path = Path("data/ground_truth/عمود النسب/عمود_النسب.clean.md")
     if gt_path.exists():
         stdout, stderr, exit_code = _run_benchmark_with_args(
             str(gt_path), "/also/missing.txt"
@@ -411,8 +409,8 @@ def test_t038_constitution_read_only_no_normalization():
     """T038: Tool is read-only and performs no linguistic normalization (Principles IV, V)."""
     import hashlib
 
-    gt_path = Path("ground_truth/عمود النسب/عمود_النسب.clean.md")
-    hyp_path = Path("output/عمود النسب نسخة 2/full_manuscript.txt")
+    gt_path = Path("data/ground_truth/عمود النسب/عمود_النسب.clean.md")
+    hyp_path = Path("data/output/عمود النسب نسخة 2/full_manuscript.txt")
 
     if not gt_path.exists() or not hyp_path.exists():
         import pytest
@@ -432,7 +430,7 @@ def test_t038_constitution_read_only_no_normalization():
 
     # Verify tool does NOT perform normalization: running on a file with diacritics
     # should preserve them in processing (no stripping of tashkeel)
-    from benchmark_cer_wer import TextProcessor
+    from src.pipeline.evaluation.benchmark_cer_wer import TextProcessor
     test_file = gt_path.parent / "_constitution_test.txt"
     original_text = "بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ"
     test_file.write_text(original_text, encoding="utf-8")

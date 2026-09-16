@@ -5,7 +5,7 @@ general:
 
 # Input Settings
 input:
-  default_directory: "input"
+  default_directory: "data/input"
   supported_formats:
   - ".pdf"
   - ".jpg"
@@ -93,7 +93,7 @@ ocr:
   # docstring) rather than ever serving a stale result from an old model.
   caching:
     enabled: true
-    db_path: "output/.cache/ocr_cache.sqlite3"
+    db_path: "data/output/.cache/ocr_cache.sqlite3"
   # Page-confidence reprocess loop (AGENTS.md §4.10): a page whose
   # character-weighted confidence aggregates below `threshold` is OCR'd a
   # second time with DIFFERENT binarization settings (finer block + less
@@ -116,7 +116,7 @@ analysis:
 
 # Output Settings
 output:
-  base_directory: "output"
+  base_directory: "data/output"
   formats:
   - "txt"
   - "json"
@@ -147,7 +147,7 @@ review:
 # Logging
 logging:
   level: "INFO"
-  file: "logs/processing.log"
+  file: "data/logs/processing.log"
   max_size: "10MB"
   backup_count: 5
 
@@ -163,13 +163,23 @@ vision_fallback:
   - openrouter
   confidence_threshold: 0.55
   max_calls: 3000
+  # Ink-density gate threshold (FR-003): crops with ink ratio below this
+  # value are blocked from Vision escalation. Default 0.02 (2%).
+  # CALIBRATION NOTE (T015, 2026-09-10): measured 3,629 real crops across
+  # all 113 pages — minimum ink ratio was 0.018 (1.8%), mean 0.166 (16.6%).
+  # No crops fell below 0.02, so this threshold provides zero Vision-call
+  # reduction on the current manuscript. The gate is a defensive check for
+  # genuinely blank pages (scan errors, missing pages) in future manuscripts,
+  # not a fix for this manuscript's noise pattern (watermarks/kashida, which
+  # have high ink ratio but no readable text — a different failure mode).
+  ink_density_threshold: 0.02
   # Persistent occurrence counter for the 'repeated_verbatim'
   # (hallucination) flag - see repeated_verbatim_tracker.py. Unlike the
   # old in-memory dict, this survives across runs so a phrase that keeps
   # being hallucinated over several days is caught (it was documented in
   # vision_escalations.txt appearing on pages 20-27 across separate runs
   # with a fresh dict each time, never flagged).
-  repeated_verbatim_db: "output/.cache/repeated_verbatim.sqlite3"
+  repeated_verbatim_db: "data/output/.cache/repeated_verbatim.sqlite3"
   backends:
     gemini:
       model: gemini-3.6-flash

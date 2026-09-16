@@ -11,9 +11,9 @@ can actually READ the rendered image (AGENTS.md §4.12 forbids using the
 OCR output itself as GT).
 
 Layout created:
-    ground_truth/<document>/rendered/page_NNN.png   (page image, 300 DPI)
-    ground_truth/<document>/page_NNN.txt            (placeholder, marked
-                                                     # GT-PENDING)
+    data/ground_truth/<document>/rendered/page_NNN.png   (page image, 300 DPI)
+    data/ground_truth/<document>/page_NNN.txt            (placeholder, marked
+                                                          # GT-PENDING)
 
 The placeholder deliberately contains ONLY '#'-comment lines, which
 evaluate_cer.py treats as "no usable content", so a run over not-yet-
@@ -36,15 +36,15 @@ from pathlib import Path
 
 import pymupdf as fitz
 
-from evaluate_cer import parse_page_spec
+from src.pipeline.evaluation.evaluate_cer import parse_page_spec
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 PLACEHOLDER = """\
 # GT-PENDING - أرضية صحيحة يدوية، مش مولّدة آليًا (AGENTS.md §4.12)
 # document: {document}
 # page: {page}
-# source image: ground_truth/{document}/rendered/page_{page:03d}.png
+# source image: data/ground_truth/{document}/rendered/page_{page:03d}.png
 # reviewer: <name>
 # status: PENDING
 #
@@ -83,8 +83,8 @@ def main() -> int:
     ap.add_argument("--pages", required=True, help="e.g. 24-26 or 20,24-27")
     ap.add_argument("--dpi", type=int, default=300,
                     help="render resolution for the GT page images (default 300)")
-    ap.add_argument("--input-dir", default="input")
-    ap.add_argument("--gt-root", default="ground_truth")
+    ap.add_argument("--input-dir", default="data/input")
+    ap.add_argument("--gt-root", default="data/ground_truth")
     args = ap.parse_args()
 
     pages = parse_page_spec(args.pages)

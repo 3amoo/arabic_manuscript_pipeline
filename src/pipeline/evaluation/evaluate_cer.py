@@ -124,8 +124,8 @@ def main() -> int:
     ap.add_argument("--document", required=True)
     ap.add_argument("--pages", required=True, help="e.g. 24-26 or 20,24-27")
     ap.add_argument("--diacritics", choices=["strip", "keep"], default="strip")
-    ap.add_argument("--output-root", default="output")
-    ap.add_argument("--gt-root", default="ground_truth")
+    ap.add_argument("--output-root", default="data/output")
+    ap.add_argument("--gt-root", default="data/ground_truth")
     args = ap.parse_args()
 
     pages = parse_page_spec(args.pages)
@@ -153,7 +153,7 @@ def main() -> int:
         print("NO MEASUREMENT - ground truth missing for pages: "
               f"{sorted(missing)}")
         print(f"GT directory: {gt_dir}  (create page_NNN.txt per "
-              "ground_truth/README.md)")
+              "data/ground_truth/README.md)")
         return 2
 
     print(f"CER/WER vs manual ground truth  (document: {args.document}, "

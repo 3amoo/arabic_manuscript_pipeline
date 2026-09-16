@@ -3,7 +3,7 @@ import tempfile
 import hashlib
 from pathlib import Path
 
-from output_generator import OutputGenerator, SEPARATOR
+from src.pipeline.output.output_generator import OutputGenerator, SEPARATOR
 
 
 class TestOutputGenerator(unittest.TestCase):

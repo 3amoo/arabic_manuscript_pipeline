@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-09
 
-**Status**: Reviewed
+**Status**: Ready for Review
 
 **Input**: User description: "Add an ink-density gate before Vision escalation. Before sending a low-confidence OCR line to Vision, evaluate whether its image crop contains enough visual ink/content. If the crop is effectively blank or below the configured information threshold, do not call Vision."
 

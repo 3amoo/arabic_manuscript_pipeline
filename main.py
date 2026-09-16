@@ -45,23 +45,24 @@ from dotenv import load_dotenv
 import numpy as np
 import cv2
 
-# Flat layout: all pipeline modules live at the project root.
-from input_handler import InputHandler
-from ocr_engine import OCREngine
-from output_generator import OutputGenerator
-from vision_fallback import VisionFallbackEngine
-from preprocessing import (
+# src/pipeline layout: all pipeline modules live under src/pipeline/<group>/.
+from src.pipeline.ingestion.input_handler import InputHandler
+from src.pipeline.ocr.ocr_engine import OCREngine
+from src.pipeline.output.output_generator import OutputGenerator
+from src.pipeline.ocr.vision_fallback import VisionFallbackEngine
+from src.pipeline.preprocessing.preprocessing import (
     preprocess_page, set_binarize_params, reset_binarize_params,
     adaptive_binarize_gray, _BINARIZE_BLOCK_SIZE, _BINARIZE_C,
 )
-from surya_line_detector import SuryaLineDetector
+from src.pipeline.ocr.surya_line_detector import SuryaLineDetector
 
-import page_layout_detector as layout
-import segment_text_rows as rowseg
+import src.pipeline.preprocessing.page_layout_detector as layout
+import src.pipeline.preprocessing.segment_text_rows as rowseg
 
 logger = logging.getLogger(__name__)
 
 _ink_density_threshold = 0.02
+_ink_density_threshold_warned = False
 
 
 def _compute_ink_ratio(crop_img_bgr) -> Optional[float]:
@@ -801,7 +802,7 @@ def _run_page_once(image, ocr_engine, vision_engine=None, surya_detector=None):
 def setup_logging(config: dict):
     """Setup logging configuration."""
     log_config = config.get('logging', {})
-    log_file = Path(log_config.get('file', 'logs/processing.log'))
+    log_file = Path(log_config.get('file', 'data/logs/processing.log'))
     log_file.parent.mkdir(parents=True, exist_ok=True)
     
     logging.basicConfig(
@@ -817,16 +818,12 @@ def load_config() -> dict:
     """
     Load configuration from YAML.
 
-    BUG FIX: this used to hardcode Path('config/settings.yaml'), but the
-    project is a flat layout (see README.md) - settings.yaml lives at
-    the project root, next to main.py, not under a config/ subfolder.
-    On a fresh checkout that config/ directory doesn't exist at all, so
-    every run of `python main.py` failed immediately with
-    FileNotFoundError before doing anything. Resolved relative to this
-    file's own directory (not the process's current working directory)
-    so main.py works correctly regardless of where it's invoked from.
+    settings.yaml lives in config/ next to this file's directory. Resolved
+    relative to this file's own directory (not the process's current
+    working directory) so main.py works correctly regardless of where
+    it's invoked from.
     """
-    config_path = Path(__file__).parent / 'settings.yaml'
+    config_path = Path(__file__).parent / 'config' / 'settings.yaml'
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
     with open(config_path, 'r', encoding='utf-8') as f:
@@ -1025,17 +1022,30 @@ def main():
     config = load_config()
     setup_logging(config)
     logger = logging.getLogger(__name__)
-    
+
+    # Ink-density threshold from settings.yaml (T014). One-time warning if
+    # the key is missing — the hardcoded default (0.02) still applies.
+    global _ink_density_threshold, _ink_density_threshold_warned
+    vf_cfg = config.get('vision_fallback', {})
+    if 'ink_density_threshold' in vf_cfg:
+        _ink_density_threshold = float(vf_cfg['ink_density_threshold'])
+    elif not _ink_density_threshold_warned:
+        logger.warning(
+            "vision_fallback.ink_density_threshold not set in settings.yaml "
+            "- using default 0.02"
+        )
+        _ink_density_threshold_warned = True
+
     logger.info("Starting Local Arabic OCR Pipeline")
 
     if args.start is not None or args.end is not None:
         logger.info(
             f"Page range requested: start={args.start or 'first'}, "
-            f"end={args.end or 'last'} (applies to every file in input/)"
+            f"end={args.end or 'last'} (applies to every file in data/input/)"
         )
     
     input_handler = InputHandler(
-        config.get('input', {}).get('default_directory', 'input'),
+        config.get('input', {}).get('default_directory', 'data/input'),
         enable_direct_text_extraction=(
             config.get('input', {})
             .get('direct_text_extraction', {})
@@ -1045,7 +1055,7 @@ def main():
     files = input_handler.find_all_files()
     
     if not files:
-        logger.warning("No input files found in 'input/' directory")
+        logger.warning("No input files found in 'data/input/' directory")
         return
     
     logger.info(f"Found {len(files)} file(s) to process")
@@ -1087,7 +1097,7 @@ def main():
             logger.info(
                 f"Finished {file_path.name}: {result['page_count']} pages "
                 f"in {result['processing_time']:.2f}s "
-                f"(saved incrementally to output/{result['document_name']}/)"
+                f"(saved incrementally to data/output/{result['document_name']}/)"
             )
         except Exception as e:
             logger.error(f"Failed to process {file_path.name}: {e}", exc_info=True)

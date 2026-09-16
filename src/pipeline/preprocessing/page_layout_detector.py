@@ -181,7 +181,7 @@ def binarize(image_bgr):
     preserve thin diacritics (tashkeel) which global Otsu tends to
     erode on Arabic manuscript scans (see AGENTS.md §4.2).
     """
-    from preprocessing import adaptive_binarize
+    from src.pipeline.preprocessing.preprocessing import adaptive_binarize
 
     return adaptive_binarize(image_bgr)
 

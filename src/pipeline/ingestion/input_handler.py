@@ -10,7 +10,7 @@ import pymupdf as fitz
 from PIL import Image
 import logging
 
-from pdf_text_extractor import (
+from src.pipeline.ingestion.pdf_text_extractor import (
     PDF_TYPE_HYBRID,
     extract_direct_text,
     detect_pdf_type,
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class InputHandler:
     """Handles input file discovery and loading."""
     
-    def __init__(self, input_dir: str = "input", enable_direct_text_extraction: bool = True):
+    def __init__(self, input_dir: str = "data/input", enable_direct_text_extraction: bool = True):
         """
         Initialize InputHandler.
         
