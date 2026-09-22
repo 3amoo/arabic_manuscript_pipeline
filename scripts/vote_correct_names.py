@@ -382,19 +382,35 @@ def apply_corrections(
             page_file.read_text(encoding="utf-8").splitlines(), 1
         ):
             tokens = line.split()
+            line_changed = False
             for i, tok in enumerate(tokens):
                 fix = fix_map.get((page_num, line_no, i))
                 if fix is None:
                     fix = form_map.get((page_num, tok))
                 if fix is not None:
                     tokens[i] = fix
+                    line_changed = True
                     changed = True
-            out_lines.append("  ".join(tokens) if tokens else line)
-        if changed:
-            n_pages += 1
+            # Only rewrite lines that actually carry a fix. Rewriting
+            # every line (as a plain "  ".join(tokens) did) silently
+            # rewrites the whitespace of every line in the corpus: it
+            # collapses the original spacing, which breaks the verse
+            # filter downstream (the " ... " hemistich separator is
+            # matched pre-normalization in evaluate_cer), dropping verse
+            # lines from the scored set. That surfaced as a phantom CER
+            # movement on p40 with no character change at all.
+            if line_changed:
+                out_lines.append(" ".join(tokens))
+            else:
+                out_lines.append(line)
+        # Every page is written so the corrected layer is a complete
+        # corpus (a drop-in replacement for raw_text/), not a sparse set
+        # of only-touched pages; untouched pages are byte-identical.
         (out_dir / page_file.name).write_text(
             "\n".join(out_lines) + "\n", encoding="utf-8"
         )
+        if changed:
+            n_pages += 1
     return n_pages
 
 

@@ -95,7 +95,35 @@ PY = str(REPO / "myenv" / "bin" / "python")
 # demonstrably non-zero" rather than estimated. logs/vault_reverts.jsonl
 # holds both with their evidence; the GT gate (Task 4) now catches this
 # failure mode automatically where GT coverage exists.
-INVARIANT = "47e1985598c50c3f976f"
+#
+# Updated 2026-09-22 (Task 6, layer promotion + apply whitespace fix):
+# the benchmark is now measured against vault_corrected_text/, not
+# raw_text/ — staying on raw_text/ keeps proven-wrong OCR errors that
+# the corrections fixed. Measured before/after (raw_text -> corrected,
+# both under the same alignment, 45/113 pages):
+#   CER        0.237001 -> 0.236871  (-0.00013, rounds 23.7% -> 23.7%)
+#   WER        0.597962 -> 0.597294  (-0.00067, rounds 59.8% -> 59.7%)
+#   diacritics 0.8313   -> 0.8300    (-0.0013,  83.1% -> 83.0%)
+# Four pages improved, all in the GT-confirmed tier (p38/p48/p49/p50);
+# no page regressed. The gains are small because 30 token fixes across
+# ~28k words cannot move aggregate CER far, which is the honest
+# expectation, not a sign the corrections are worthless.
+#
+# The promotion surfaced a real bug the audit-only use had hidden:
+# apply_corrections used to join EVERY line with double spaces, so
+# vault_corrected_text/ rewrites the whitespace of all 113 pages. That
+# broke the verse filter downstream (the " ... " hemistich separator is
+# matched pre-normalization in evaluate_cer) and dropped verse lines
+# from the scored set, producing a PHANTOM +0.14 CER on p40 with no
+# character change at all (measured before the fix: 11 -> 10 verse
+# lines, normalized text byte-identical). Only lines carrying a fix are
+# rewritten now; untouched pages are byte-identical to raw_text/.
+#
+# EXPECTED below pins the CORRECTED-layer numbers (23.7/59.7/83.0)
+# because the benchmark regen now scores vault_corrected_text/; the raw
+# baseline (23.7/59.8/83.1) stays reproducible with `evaluate_cer
+# --layer raw_text`. See check_benchmark() and docs/accuracy_history.md.
+INVARIANT = "853419275001e5bbd407"
 TEST_MODULES = [
     "tests.test_gt_alignment",
     "tests.test_diacritic_metrics",
@@ -126,7 +154,7 @@ SMOKE_ARGS = ["--start", "24", "--end", "26"]
 DOC = "عمود النسب نسخة 2"
 ALIGNMENT = "data/evaluation_reports/008/alignment.json"
 REPORT_DIR = "data/evaluation_reports/019-escalation-pass"
-EXPECTED = ("CER: 23.7%", "WER: 59.8%", "diacritics accuracy: 83.1%")
+EXPECTED = ("CER: 23.7%", "WER: 59.7%", "diacritics accuracy: 83.0%")
 
 
 def _run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
@@ -182,9 +210,14 @@ def check_smoke() -> bool:
 
 
 def check_benchmark() -> bool:
+    # Task 6: the consumed benchmark input is vault_corrected_text/, not
+    # raw_text/ — staying on raw_text/ keeps the proven-wrong OCR errors
+    # the Phase 1 corrections fixed. Both layers are measured so the raw
+    # baseline stays reproducible in the same run.
     r = _run(
         [PY, "-m", "src.pipeline.evaluation.evaluate_cer",
          "--document", DOC, "--alignment", ALIGNMENT,
+         "--layer", "vault_corrected_text",
          "--report-dir", REPORT_DIR, "--diacritics-metrics"],
         timeout=1800,
     )
@@ -192,7 +225,7 @@ def check_benchmark() -> bool:
     # evaluate_cer returns rc=2 informationally when some pages are unmatched;
     # the printed values are what matter (verified against the canonical shell run)
     ok = r.returncode in (0, 2) and all(e in blob for e in EXPECTED)
-    print(f"  benchmark regen {'OK' if ok else 'FAIL'}: "
+    print(f"  benchmark regen (vault_corrected_text) {'OK' if ok else 'FAIL'}: "
           + " / ".join(blob.strip().splitlines()[-3:]))
     return ok
 

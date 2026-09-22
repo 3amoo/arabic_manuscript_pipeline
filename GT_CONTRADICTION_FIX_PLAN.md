@@ -239,3 +239,47 @@ Three edge cases the implementation had to handle, each measured:
 The gate hard-blocks a contradicted occurrence in `main()` even when the
 review accepted the skeleton — the review accepts the SKELETON, the GT
 contradicts the OCCURRENCE, and p44 was exactly that case.
+
+### Task 6 resolution — promoted, with one bug the promotion exposed
+
+**Decision: `vault_corrected_text/` is now the consumed benchmark input.**
+The audit-only alternative keeps the original OCR errors the corrections
+fixed, which is the worse failure mode. The promotion follows the plan's
+recommended resolution: pair it with the tiered documentation (Task 5,
+recorded in `docs/accuracy_history.md`) so the numbers are reported
+alongside what fraction of the corrections are externally verified.
+
+Measured before/after, same alignment, 45/113 scored pages:
+
+| metric | raw_text | vault_corrected_text | delta |
+|---|---|---|---|
+| CER (weighted) | 0.237001 | 0.236871 | −0.00013 (both 23.7%) |
+| WER (weighted) | 0.597962 | 0.597294 | −0.00067 |
+| diacritics accuracy | 0.8313 | 0.8300 | −0.0013 |
+
+Four pages improved — p38/p48/p49/p50, exactly the GT-confirmed tier. No
+page regressed. DER was identical on both layers (18.7% base-CER /
+34.2% DER) since these are base-letter fixes.
+
+The promotion is **not** a per-tier promotion as the plan's option 1
+considered — the benchmark scores a whole layer, not individual
+corrections, so the tier distinction lives in the documentation rather
+than in the measured numbers. The four pages that moved are the
+GT-confirmed ones, which is the expected direction for that tier.
+
+**The promotion exposed a bug the audit-only use had hidden.** Measuring
+the corrected layer surfaced a +0.14 CER regression on p40 — a page with
+no correction recorded on it. Investigation: `apply_corrections` joined
+*every* line with double spaces, so the corrected layer rewrote the
+whitespace of all 113 pages (2482 of 2895 differing lines were
+whitespace-only). That broke the verse filter (`" ... "` is matched
+pre-normalization) and dropped one verse line from p40's scored set
+(11 → 10) — the "regression" was the missing line re-weighting the page,
+not a character change. Fixed in `scripts/vote_correct_names.py`: only
+lines carrying a fix are rewritten; untouched pages are byte-identical
+to `raw_text/`. The corrected layer is regenerated, so it now carries 29
+token fixes across 21 pages (was 30) and 0 whitespace-only diffs.
+
+All 6 tasks complete. Invariant re-pinned to `853419275001e5bbd407`;
+`verify_all.py` scores `--layer vault_corrected_text` by default and the
+raw baseline stays reproducible with `--layer raw_text`.

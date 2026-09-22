@@ -309,6 +309,55 @@ where GT coverage exists; the 20 out-of-scope corrections remain
 unchecked by any automated signal. `logs/vault_reverts.jsonl` records
 both reverts with their evidence.
 
+## 2026-09-22 — Task 6: `vault_corrected_text/` promoted to the consumed benchmark input
+
+The audit-only use of the corrected layer was the wrong end state:
+staying on `raw_text/` keeps the *original* OCR errors the corrections
+fixed — including at least one proven-wrong reading that Tasks 1–3
+found and reverted, and likely more among the un-GT-covered majority.
+`vault_corrected_text/` is now the layer the benchmark scores.
+
+**Measured before/after** (raw_text → corrected, same alignment, 45/113
+scored pages):
+
+| metric | raw_text | corrected | delta |
+|---|---|---|---|
+| CER (weighted) | 0.237001 | 0.236871 | −0.00013 (both round 23.7%) |
+| WER (weighted) | 0.597962 | 0.597294 | −0.00067 (59.8% → 59.7%) |
+| diacritics accuracy | 0.8313 | 0.8300 | −0.0013 (83.1% → 83.0%) |
+
+Four pages improved — p38, p48, p49, p50 — all in the GT-confirmed tier
+(هشام p48, عمرو p49, كعب p50, plus a construct-state عمرو at p38). No
+page regressed. The gains are small because 30 token fixes across ~28k
+words cannot move aggregate CER far; that is the honest expectation, not
+evidence the corrections are worthless. DER was unchanged
+(18.7% base-CER / 34.2% DER on both layers) since these are base-letter
+fixes, not tashkeel ones.
+
+**The promotion caught a real bug the audit-only use had hidden.**
+`apply_corrections` joined *every* line with double spaces, so
+`vault_corrected_text/` rewrote the whitespace of all 113 pages — 2482
+of 2895 differing lines were whitespace-only. That broke the verse
+filter downstream (the `" ... "` hemistich separator is matched
+pre-normalization in `evaluate_cer`) and dropped verse lines from the
+scored set, producing a **phantom +0.14 CER on p40 with no character
+change at all** (measured: 11 → 10 verse lines, normalized text
+byte-identical). Only lines carrying a fix are rewritten now; untouched
+pages are byte-identical to `raw_text/`. The corrected layer shrank
+from 30 fixes to 29 as a consequence of the rewrite, and the
+before/after numbers above are the post-fix measurement — the pre-fix
+layer was measuring its own whitespace damage, not the corrections.
+
+**Reading the numbers with the tiers in mind:** the four improving pages
+are exactly the GT-confirmed ones, which is the expected direction for
+that tier. The diacritics dip (83.1 → 83.0) comes from the corrected
+spellings carrying the vault's bare forms where `raw_text/` had OCR'd
+tashkeel — a known, accepted trade (the diacritics-only class was
+measured separately as 90% correct OCR tashkeel over bare vault forms
+and deliberately not applied). The 20 out-of-GT-scope corrections are
+in this layer too; their benefit is unmeasurable either way and they
+carry the unknown-but-non-zero review error rate recorded above.
+
 ## Future work (recorded, not scoped)
 If diacritic-completeness ever becomes a priority again: does
 PaddleOCR expose a **per-character or per-mark confidence** rather than

@@ -148,6 +148,15 @@ def main() -> int:
         action="store_true",
         help="write ASCII heatmap of per-page CER",
     )
+    ap.add_argument(
+        "--layer",
+        default="raw_text",
+        help=(
+            "evidence directory to score: raw_text (the immutable OCR "
+            "record, §6) or vault_corrected_text (the Phase 1 corrected "
+            "layer). Defaults to raw_text. Alignment-mode only."
+        ),
+    )
     args = ap.parse_args()
 
     if args.alignment:
@@ -643,7 +652,20 @@ def _run_alignment_mode(args):
     # Rebuild the normalized GT list (same normalizer as align tool).
     from src.pipeline.evaluation.align_ground_truth import extract_gt_verses
     gt_verses = extract_gt_verses(_Path(payload["gt_file"]))
-    raw_dir = _Path(args.output_root) / args.document / "raw_text"
+    # --layer selects which evidence directory to score: raw_text (the
+    # immutable OCR record, §6) or vault_corrected_text (the Phase 1
+    # corrected layer). The alignment is page-number keyed, so it stays
+    # valid for either layer.
+    layer_dir = _Path(args.output_root) / args.document / args.layer
+    if not layer_dir.is_dir():
+        print(
+            f"ERROR: evidence layer not found: {layer_dir}\n"
+            f"available layers are raw_text and (if the corrector ran) "
+            f"vault_corrected_text",
+            file=sys.stderr,
+        )
+        return 1
+    raw_dir = layer_dir
 
     report = build_corpus_report(
         args.document,

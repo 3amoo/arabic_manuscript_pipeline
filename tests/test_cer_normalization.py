@@ -109,5 +109,40 @@ class TestRecoveredPageScoring(unittest.TestCase):
             self.assertIsNone(score_aligned_page(["x"], None, entry))
 
 
+class TestLayerSelection(unittest.TestCase):
+    """--layer selects which evidence directory the benchmark scores
+    (Task 6: the consumed input is vault_corrected_text/, not raw_text/).
+    The alignment is page-number keyed, so one alignment.json serves
+    either layer; a typo must fail loudly rather than silently scoring
+    the wrong tree."""
+
+    def test_missing_layer_errors_loudly(self):
+        import tempfile
+        from pathlib import Path
+        import sys
+        from src.pipeline.evaluation import evaluate_cer
+        with tempfile.TemporaryDirectory() as td:
+            doc = Path(td) / "doc" / "raw_text"
+            doc.mkdir(parents=True)
+            doc.joinpath("page_001.txt").write_text("x\n", encoding="utf-8")
+            # The GT file is parsed before the layer check, so it must
+            # exist; only its shape matters here.
+            gtfile = Path(td) / "gt.md"
+            gtfile.write_text("بيت ... شطر\n", encoding="utf-8")
+            gt = Path(td) / "gt.json"
+            gt.write_text(
+                '{"gt_file": "%s", "alignment": []}' % gtfile,
+                encoding="utf-8")
+            argv = ["--document", "doc", "--alignment", str(gt),
+                    "--layer", "nope", "--output-root", str(td)]
+            old = sys.argv
+            sys.argv = ["evaluate_cer"] + argv
+            try:
+                rc = evaluate_cer.main()
+            finally:
+                sys.argv = old
+        self.assertEqual(rc, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

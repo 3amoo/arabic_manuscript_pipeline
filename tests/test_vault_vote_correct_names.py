@@ -523,6 +523,46 @@ class TestApplyContract(unittest.TestCase):
         # raw_text is the auditable OCR record - must be untouched.
         self.assertIn("ومب", original)
 
+    def test_untouched_lines_keep_their_original_whitespace(self):
+        """Regression: the apply pass used to rewrite EVERY line via a
+        join, collapsing the corpus's original spacing. That broke the
+        verse filter downstream (the " ... " hemistich separator is
+        matched pre-normalization) and dropped verse lines from the
+        scored set, surfacing as a phantom CER movement on p40 with no
+        character change. Only lines carrying a fix may be rewritten."""
+        with tempfile.TemporaryDirectory() as td:
+            doc = Path(td) / "doc"
+            raw = doc / "raw_text"
+            raw.mkdir(parents=True)
+            untouched = "# Page 1\nومن  غصية  بنو  الشريد ... فاز  وابكل  ار  يد\n"
+            raw.joinpath("page_001.txt").write_text(untouched, encoding="utf-8")
+            raw.joinpath("page_002.txt").write_text(
+                "خال فهر بن ومب بن عمرو\n", encoding="utf-8"
+            )
+            corrections = [{
+                "source": "vault_crossref",
+                "skeleton": "ومب",
+                "minority_form": "ومب",
+                "corrected_to": "وهب",
+                "occurrences": [
+                    {"page": 2, "line": 1, "token_index": 3,
+                     "file": "page_002.txt"},
+                ],
+            }]
+            n = apply_corrections(corrections, doc, "vault_corrected_text")
+            # The page with no fixes is still written (the corrected
+            # layer is a complete corpus, not a sparse set of touched
+            # pages) but must be byte-identical to the OCR original.
+            self.assertEqual(n, 1)
+            p1 = doc / "vault_corrected_text" / "page_001.txt"
+            self.assertTrue(p1.exists())
+            self.assertEqual(p1.read_text("utf-8"), untouched)
+            out2 = (doc / "vault_corrected_text" / "page_002.txt").read_text(
+                "utf-8"
+            )
+        self.assertIn("وهب", out2)
+        self.assertNotIn("ومب", out2)
+
 
 class TestGTGate(unittest.TestCase):
     """The GT-verification gate (Task 4, GT_CONTRADICTION_FIX_PLAN).
