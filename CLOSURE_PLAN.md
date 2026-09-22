@@ -361,9 +361,76 @@ occurrence and leaves no durable trace usable as future evaluation data.
 | C | Review-queue → growing gold corpus | **DONE (as process).** Append-only record format + validating ingester + additive gold layer; workflow recorded in accuracy_history.md. |
 
 **The two negative results are the most valuable outputs.** Both were
-caught by measuring rather than assuming: E's correction turned out to
-be diacritics-only (invisible to the letter-level benchmark), and B's
-headline improvement turned out to be a density artifact that a
-stronger ground truth exposed. The infrastructure from both is kept and
-reusable; the measurements are recorded so the next round starts from
-what was learned rather than re-deriving it.
+caught by measuring rather than assuming: E's correction turned out to be
+diacritics-only (invisible to the letter-level benchmark), and B's
+headline improvement turned out to be a density artifact that a stronger
+ground truth exposed. The infrastructure from both is kept and reusable;
+the measurements are recorded so the next round starts from what was
+learned rather than re-deriving it.
+
+## Post-closure follow-up (NEXT_DEVELOPMENT_PLAN_2)
+
+- **2026-09-22 — Phase 0 DONE.** Five test modules
+  (`test_fallback_report`, `test_marginalia`, `test_measure_der`,
+  `test_page_layout_detector`, `test_regressions`) were passing but
+  absent from `verify_all.py`'s `TEST_MODULES`, so a regression in any
+  of them would not have tripped the pinned invariant check. Wired in
+  ahead of the Phase 1 work so that change has a safety net to break
+  loudly against. 19 modules / 296 tests, all four checks pass; the
+  evidence invariant needed no re-pin.
+
+- **2026-09-22 — a counting bug in Group D's occurrence extractor,
+  found by Phase 1's tests.** `extract_ocr_names` collected a name once
+  per adjacent chain marker, so a name flanked by two markers
+  (فهر بن ومب بن عمرو) was double-counted in the occurrence list and
+  the review queue. Deduplicated by (token, position) within the line.
+  The live numbers change: occurrences 302 → 265, near_miss 67 → 56,
+  diacritics_differ 56 → 52. The 227-name index and the agree/unmatched
+  verdicts are unaffected. **The Group D table row above reports the
+  pre-fix figures (123 disagreements) and is left as the historical
+  record of what was measured at the time.**
+
+- **2026-09-22 — Phase 1 vault corrector BUILT (not yet applied).**
+  `scripts/vault_vote_correct_names.py` + 17 tests. This is the module
+  Group E's negative result pointed at: internal voting is structurally
+  blind to base-letter errors, because two different base letters are
+  two different skeletons and can never fall in one cluster. The vault
+  is external ground truth for exactly that class.
+
+  Analysis of the live near-miss queue before writing any code found
+  two things the naive version would have gotten wrong, and both are
+  guards now:
+
+  - **10 of the 67 near-miss rows are not spelling errors at all.** They
+    are declension artifacts: the vault form is the OCR form plus a
+    trailing alef marking تنوين الفتح (محمد vs محمدا). In a genealogy
+    chain the name is the first member of an إضافة and must NOT carry
+    tanwin, so "correcting" محمد → محمدا would corrupt correct text.
+    `is_declension_alef` compares diacritic-stripped forms so a fatha
+    cannot mask the alef, and such rows are never corrected.
+  - **29 of the 67 matched a vault form attested exactly once.** A
+    single uncorroborated transcription is weak authority to rewrite the
+    corpus with, so `MIN_VAULT_EVIDENCE=2` requires corroboration. The
+    threshold is a dial, not a veto — the tests assert the same case
+    passes at 1.
+
+  The three Group E guards are reused, not restated (directional
+    diacritics, no ى/ي unification via the shared `strip_diacritics`,
+    chain evidence ≥2), plus: unambiguous nearest neighbour only — two
+    vault skeletons at equal minimum distance is a coin flip, not
+    evidence.
+
+  Provenance stays separate by design: this module writes only to
+    `logs/vault_vote_corrections.jsonl` with `source:
+    "vault_crossref"` and never touches `logs/vote_corrections.jsonl`,
+    so a vault-derived bias can be isolated and reverted without
+    touching the independently-validated internal-vote fixes — the same
+    reasoning that keeps Group D's queue separate from
+    manual_review_queue.md.
+
+  Dry run against the live corpus: **6 corrections, 8 token fixes** —
+    يداد→شداد, ومب→وهب, سعيد→سعد, وسعد→سعد, كَُغْبِ→كعب, سَْغدُ→سعد.
+    All six are real dotting/spelling slips, each corroborated in the
+    vault (attestations 2–21). **Not applied yet**: the plan's step 2
+    calls for human confirmation of the rows, and the queue rows are
+    the ones to confirm.

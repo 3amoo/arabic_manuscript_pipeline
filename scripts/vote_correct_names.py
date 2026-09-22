@@ -346,11 +346,17 @@ def write_log(corrections: List[Dict[str, object]], path: Path) -> None:
 
 
 def apply_corrections(
-    corrections: List[Dict[str, object]], document_dir: Path
+    corrections: List[Dict[str, object]],
+    document_dir: Path,
+    out_name: str = "vote_corrected_text",
 ) -> int:
     """Rewrite the corpus with corrections applied, into a NEW directory.
-    raw_text/ is never modified - it stays as the auditable OCR record."""
-    out_dir = document_dir / "vote_corrected_text"
+    raw_text/ is never modified - it stays as the auditable OCR record.
+
+    out_name is the directory to write (vote_corrected_text for Group E,
+    vault_corrected_text for the Phase 1 vault corrector); the two
+    mechanisms never write to the same place."""
+    out_dir = document_dir / out_name
     out_dir.mkdir(parents=True, exist_ok=True)
     # Map (page, minority_form) -> majority_form.
     fix_map: Dict[Tuple[int, str], str] = {}

@@ -218,19 +218,29 @@ def extract_ocr_names(records: List[Dict[str, object]]) -> List[Dict[str, object
     occurrences = []
     for rec in records:
         toks = rec["text"].split()
+        seen_here: Set[Tuple[str, int]] = set()
         for i, t in enumerate(toks):
             if strip_diacritics(t) in CHAIN_MARKERS:
                 for j in (i - 1, i + 1):
                     if 0 <= j < len(toks):
                         w = toks[j].strip(".,،؛:\"()")
                         k = strip_diacritics(w)
-                        if len(k) >= _MIN_NAME_LENGTH and k not in _NON_NAME_SKELETONS:
-                            evidence.setdefault(k, set()).add((rec["page"], rec["line"]))
-                            occurrences.append(
-                                {"token": w, "skeleton": k,
-                                 "page": rec["page"], "line": rec["line"],
-                                 "file": rec["file"]}
-                            )
+                        if (len(k) >= _MIN_NAME_LENGTH
+                                and k not in _NON_NAME_SKELETONS):
+                            evidence.setdefault(k, set()).add(
+                                (rec["page"], rec["line"]))
+                            # A name flanked by two chain markers
+                            # (فهر بن ومب بن عمرو) would be collected
+                            # once per marker and double-counted in the
+                            # occurrence list and the queue. Dedup by
+                            # (token, position) within the line.
+                            if (w, j) not in seen_here:
+                                seen_here.add((w, j))
+                                occurrences.append(
+                                    {"token": w, "skeleton": k,
+                                     "page": rec["page"], "line": rec["line"],
+                                     "file": rec["file"]}
+                                )
     accepted = {k for k, lines in evidence.items() if len(lines) >= _MIN_OCR_EVIDENCE}
     return [o for o in occurrences if o["skeleton"] in accepted]
 
