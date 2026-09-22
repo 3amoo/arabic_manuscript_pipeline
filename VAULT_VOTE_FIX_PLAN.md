@@ -199,6 +199,31 @@ earlier plans for Group E's tokenization — don't build a second parser)
    the original plan's "full-line vs. partial confidence" distinction
    still applies on top of this.
 
+**RESULT (2026-09-22): the 52 diacritics-only rows are almost entirely a
+NON-correction class — applying them would have STRIPPED CORRECT
+TASHKEEL.** The spot-check found 11 of 12 sampled rows carry the correct
+canonical vowelling; the full-set measurement confirms it at 47 of 52
+(90%). The structure is uniform: the vault records these names **bare**
+(unvowelled — 50 of 52 vault canonical forms carry no marks), because
+the vault's index holds skeleton-level spellings, while the OCR form
+carries genuine tashkeel. "Correcting" toward the vault form would
+delete real diacritics — the exact regression the directional guard
+exists to prevent.
+
+The 3 rows that differ are `عَلِي` (p38 l9, p44 l18, p81 l9): the OCR's
+vowelling is the NAME Ali while the vault's bare canonical is how the
+preposition على collapses. The directional guard already refuses these —
+imposing the vault form would erase the name into the preposition.
+
+The remaining 2 rows have no canonical diacritization available.
+
+**Disposition: NO diacritics-only corrections applied.** The sampling
+approach was the right call: 12 rows were enough to expose that the
+entire class was mis-specified, and a bulk-apply would have damaged 47
+correctly-vowelled names. Phase 1 is complete (34 applied base-letter
+corrections, 0 diacritics-only); Phase 2 (gold corpus ingest) can
+proceed.
+
 ---
 
 ## Summary Table
