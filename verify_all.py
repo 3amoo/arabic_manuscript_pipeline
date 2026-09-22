@@ -60,7 +60,23 @@ PY = str(REPO / "myenv" / "bin" / "python")
 # عمير, حزن, القرم, زمعة, and 6 declension artifacts) were reviewed and
 # excluded by logs/vault_review_56.jsonl. Benchmark unchanged at
 # 23.7/59.8/83.1 (raw_text is the benchmark input).
-INVARIANT = "afad71901e5a936c44bf"
+#
+# Updated 2026-09-22 (GT contradiction revert): the عقبة->عتبة correction
+# (2 fixes, p44+l25 and p76+l9) was found WRONG against the ground-truth
+# verse transcription — GT verse 301 spells عُقْبَة with ق, the OCR's own
+# letter, and p44 lines 18-28 map one-to-one onto GT verses 298-304, so
+# the verse identity is airtight. Reverted; see
+# logs/vault_reverts.jsonl. The hash moves because both fixes went back
+# to the OCR's original spelling. 32 token fixes remain (was 34).
+#
+# Updated 2026-09-22 (Task 3 audit): the حام->سام correction (2 fixes,
+# p16+l18 and p110+l9) was also found WRONG by a full audit of every
+# applied correction against the GT and the corpus's internal repetition
+# — the manuscript reads "السوادين فمن كوش بن حام" (the dark-skinned
+# peoples descend from Kush son of HAM, not Shem), the verse appears
+# twice with حام in both copies, and the next verse names حام again.
+# Reverted; see logs/vault_reverts.jsonl. 30 token fixes remain.
+INVARIANT = "47e1985598c50c3f976f"
 TEST_MODULES = [
     "tests.test_gt_alignment",
     "tests.test_diacritic_metrics",
