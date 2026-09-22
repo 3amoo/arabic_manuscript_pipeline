@@ -13,6 +13,7 @@ Run:  myenv/bin/python -m pytest tests/test_vault_vote_correct_names.py
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -379,9 +380,116 @@ class TestProvenance(unittest.TestCase):
         self.assertEqual(len(corr["occurrences"]), 4)
 
 
+class TestReviewGate(unittest.TestCase):
+    """The human review is the decision layer — no measured signal
+    separates a garbled token from a genuinely distinct name (see
+    DISCRIMINATOR_MEASUREMENTS.md), so the guards propose and the review
+    decides. The refusal happens in main(): guards consult the review to
+    *override* their thresholds (a permissive signal), and main() then
+    filters the proposed set down to the accepted skeletons."""
+
+    def _synthetic_doc(self, tmp: Path) -> Path:
+        doc = tmp / "doc"
+        raw = doc / "raw_text"
+        raw.mkdir(parents=True)
+        raw.joinpath("page_001.txt").write_text(
+            "خال أبي فهر بن ومب بن عمرو\n"
+            "أبو ومب بن عمرو بن عائذ\n",
+            encoding="utf-8",
+        )
+        return doc
+
+    def test_rejected_skeleton_is_filtered_out_of_apply(self):
+        import scripts.vault_vote_correct_names as v
+        v._REVIEW_ACCEPTED.clear()
+        v._REVIEW_TARGETS.clear()
+        with tempfile.TemporaryDirectory() as td:
+            doc = self._synthetic_doc(Path(td))
+            vault = _synthetic_vault(Path(td))
+            review = Path(td) / "review.jsonl"
+            review.write_text(
+                json.dumps({"skeleton": "ومب", "verdict": "reject",
+                            "vault_form": "وهب"}, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            rc = v.main([
+                "--document", "doc", "--output-root", str(Path(td)),
+                "--vault", str(vault), "--review", str(review),
+                "--apply", "--log", str(Path(td) / "log.jsonl"),
+            ])
+        self.assertEqual(rc, 0)
+        # The applied directory must not exist: the only correction was
+        # rejected by the review.
+        self.assertFalse((doc / "vault_corrected_text").exists())
+
+    def test_accepted_skeleton_passes_the_gate(self):
+        import scripts.vault_vote_correct_names as v
+        v._REVIEW_ACCEPTED.clear()
+        v._REVIEW_TARGETS.clear()
+        with tempfile.TemporaryDirectory() as td:
+            doc = self._synthetic_doc(Path(td))
+            vault = _synthetic_vault(Path(td))
+            review = Path(td) / "review.jsonl"
+            review.write_text(
+                json.dumps({"skeleton": "ومب", "verdict": "accept",
+                            "vault_form": "وهب"}, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            rc = v.main([
+                "--document", "doc", "--output-root", str(Path(td)),
+                "--vault", str(vault), "--review", str(review),
+                "--apply", "--log", str(Path(td) / "log.jsonl"),
+            ])
+            out = (doc / "vault_corrected_text" / "page_001.txt").read_text(
+                encoding="utf-8")
+        self.assertEqual(rc, 0)
+        self.assertIn("وهب", out)
+        self.assertNotIn("ومب", out)
+
+    def test_review_target_picks_the_right_candidate_in_a_tie(self):
+        # Two equally-close, equally-attested vault names: the review's
+        # chosen target must win over evidence weight, which would
+        # otherwise pick the pollutant.
+        import scripts.vault_vote_correct_names as v
+        v._REVIEW_ACCEPTED.clear()
+        v._REVIEW_TARGETS.clear()
+        with tempfile.TemporaryDirectory() as td:
+            vault = _synthetic_vault(Path(td))
+            (vault / "tie.md").write_text(
+                "---\ntags:[x]\n---\n\n# Excalidraw Data\n\n"
+                "## Text Elements\nسام ^p1\nسام ^p2\n"
+                "كام ^q1\nكام ^q2\n%%\n", encoding="utf-8"
+            )
+            idx = _build_index(vault)
+            recs = _records(
+                ["وكوش بن حام بن نوح",
+                 "قال حام بن نوح",
+                 "وروى حام بن نوح"]
+            )
+            v._REVIEW_ACCEPTED.add("حام")
+            v._REVIEW_TARGETS["حام"] = "سام"
+            corrections = plan_vault_corrections(recs, idx, MAX_EDIT_DISTANCE, 2)
+        corr = next((c for c in corrections if c["skeleton"] == "حام"), None)
+        self.assertIsNotNone(corr, "حام should be proposed")
+        self.assertEqual(corr["corrected_to"], "سام")
+
+    def test_review_file_loading(self):
+        from scripts.vault_vote_correct_names import load_review_verdicts
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "review.jsonl"
+            p.write_text(
+                json.dumps({"skeleton": "ومب", "verdict": "accept",
+                            "vault_form": "وهب"}, ensure_ascii=False) + "\n"
+                + json.dumps({"skeleton": "سعيد", "verdict": "reject",
+                              "vault_form": "سعد"}, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            verdicts = load_review_verdicts(p)
+        self.assertEqual(verdicts["ومب"], "accept")
+        self.assertEqual(verdicts["سعيد"], "reject")
+
+
 class TestApplyContract(unittest.TestCase):
-    """The apply contract inherited from Group E: raw_text is never
-    modified, and each mechanism writes to its own directory."""
 
     def test_apply_writes_to_vault_dir_and_preserves_original(self):
         import json

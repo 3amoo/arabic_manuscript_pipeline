@@ -1,0 +1,56 @@
+{"page": 8, "line": 13, "token": "يداد", "skeleton": "يداد", "vault_form": "شداد", "verdict": "reject", "reason": "REAL NAME COLLISION: أحمد محمود بن يداد الحسني is the commentator; prose about book transmission, not Adnan lineage"}
+{"page": 8, "line": 25, "token": "محمد", "skeleton": "محمد", "vault_form": "محمدا", "verdict": "reject", "reason": "DECLENSION: تنوين الفتح alef (محمد vs محمدا); name is in construct state before بن — already blocked by is_declension_alef"}
+{"page": 9, "line": 24, "token": "مشام", "skeleton": "مشام", "vault_form": "هشام", "verdict": "accept", "reason": "not an Arabic word; target هشام بن عبد الملك"}
+{"page": 10, "line": 18, "token": "محمد", "skeleton": "محمد", "vault_form": "محمدا", "verdict": "reject", "reason": "DECLENSION: تنوين الفتح alef (محمد vs محمدا); name is in construct state before بن — already blocked by is_declension_alef"}
+{"page": 11, "line": 17, "token": "ومب", "skeleton": "ومب", "vault_form": "وهب", "verdict": "accept", "reason": "not an Arabic word; target وهب بن عمرو"}
+{"page": 11, "line": 18, "token": "محمد", "skeleton": "محمد", "vault_form": "محمدا", "verdict": "reject", "reason": "DECLENSION: تنوين الفتح alef (محمد vs محمدا); name is in construct state before بن — already blocked by is_declension_alef"}
+{"page": 11, "line": 19, "token": "محمد", "skeleton": "محمد", "vault_form": "محمدا", "verdict": "reject", "reason": "DECLENSION: تنوين الفتح alef (محمد vs محمدا); name is in construct state before بن — already blocked by is_declension_alef"}
+{"page": 11, "line": 21, "token": "محمد", "skeleton": "محمد", "vault_form": "محمدا", "verdict": "reject", "reason": "DECLENSION: تنوين الفتح alef (محمد vs محمدا); name is in construct state before بن — already blocked by is_declension_alef"}
+{"page": 11, "line": 25, "token": "حزن", "skeleton": "حزن", "vault_form": "حصن", "verdict": "reject", "reason": "REVERSE: حزن is the man s name (عبد الرحمن بن حزن); the vault target حصن = horses"}
+{"page": 11, "line": 25, "token": "حزن", "skeleton": "حزن", "vault_form": "حصن", "verdict": "reject", "reason": "REVERSE: حزن is the man s name (عبد الرحمن بن حزن); the vault target حصن = horses"}
+{"page": 11, "line": 26, "token": "سعيد", "skeleton": "سعيد", "vault_form": "سعد", "verdict": "reject", "reason": "REAL NAME COLLISION: سعيد بن المسيب is a famous تابعي; سعد is a different companion"}
+{"page": 11, "line": 26, "token": "حزن", "skeleton": "حزن", "vault_form": "حصن", "verdict": "reject", "reason": "REVERSE: حزن is the man s name (عبد الرحمن بن حزن); the vault target حصن = horses"}
+{"page": 11, "line": 30, "token": "ومب", "skeleton": "ومب", "vault_form": "وهب", "verdict": "accept", "reason": "not an Arabic word; target وهب بن عمرو"}
+{"page": 12, "line": 31, "token": "مشام", "skeleton": "مشام", "vault_form": "هشام", "verdict": "accept", "reason": "not an Arabic word; target هشام بن عبد الملك"}
+{"page": 13, "line": 13, "token": "وسعد", "skeleton": "وسعد", "vault_form": "سعد", "verdict": "reject", "reason": "unreviewed skeleton - default to reject (no signal justifies applying)"}
+{"page": 13, "line": 30, "token": "عمير", "skeleton": "عمير", "vault_form": "حمير", "verdict": "reject", "reason": "REVERSE: عمير is a proper noun; the vault target حمير = donkeys"}
+{"page": 13, "line": 34, "token": "عمير", "skeleton": "عمير", "vault_form": "حمير", "verdict": "reject", "reason": "REVERSE: عمير is a proper noun; the vault target حمير = donkeys"}
+{"page": 16, "line": 18, "token": "حام", "skeleton": "حام", "vault_form": "سام", "verdict": "accept", "reason": "context is كوش بن حام (the lineage figure); target سام بن نوح"}
+{"page": 22, "line": 12, "token": "يداد", "skeleton": "يداد", "vault_form": "شداد", "verdict": "reject", "reason": "REAL NAME COLLISION: أحمد محمود بن يداد الحسني is the commentator; prose about book transmission, not Adnan lineage"}
+{"page": 36, "line": 9, "token": "عَمرَر", "skeleton": "عمرر", "vault_form": "عمرو", "verdict": "accept", "reason": "not an Arabic word (NO_ANALYSIS); عمرو is the historical figure"}
+{"page": 38, "line": 8, "token": "عَمْرر", "skeleton": "عمرر", "vault_form": "عمرو", "verdict": "accept", "reason": "not an Arabic word (NO_ANALYSIS); عمرو is the historical figure"}
+{"page": 44, "line": 25, "token": "عُقبة", "skeleton": "عقبة", "vault_form": "عتبة", "verdict": "accept", "reason": "عقبة = obstacle; target عتبة بن غزوان (companion)"}
+{"page": 48, "line": 16, "token": "مِشََام", "skeleton": "مشام", "vault_form": "هشام", "verdict": "accept", "reason": "not an Arabic word; target هشام بن عبد الملك"}
+{"page": 49, "line": 17, "token": "عَمْررَ", "skeleton": "عمرر", "vault_form": "عمرو", "verdict": "accept", "reason": "not an Arabic word (NO_ANALYSIS); عمرو is the historical figure"}
+{"page": 50, "line": 8, "token": "كَُغْبِ", "skeleton": "كغب", "vault_form": "كعب", "verdict": "accept", "reason": "wrong clitic split (كَ+غِبّ); target كعب بن مالك/الأشرف"}
+{"page": 53, "line": 8, "token": "عَمْرر", "skeleton": "عمرر", "vault_form": "عمرو", "verdict": "accept", "reason": "not an Arabic word (NO_ANALYSIS); عمرو is the historical figure"}
+{"page": 64, "line": 12, "token": "محمْدِ", "skeleton": "محمد", "vault_form": "محمدا", "verdict": "reject", "reason": "DECLENSION: تنوين الفتح alef (محمد vs محمدا); name is in construct state before بن — already blocked by is_declension_alef"}
+{"page": 65, "line": 6, "token": "عَمرُر", "skeleton": "عمرر", "vault_form": "عمرو", "verdict": "accept", "reason": "not an Arabic word (NO_ANALYSIS); عمرو is the historical figure"}
+{"page": 71, "line": 13, "token": "كُغبُ", "skeleton": "كغب", "vault_form": "كعب", "verdict": "accept", "reason": "wrong clitic split (كَ+غِبّ); target كعب بن مالك/الأشرف"}
+{"page": 72, "line": 14, "token": "الْقَرم", "skeleton": "القرم", "vault_form": "القيّم", "verdict": "reject", "reason": "NEITHER IS A NAME: القرم = studhorse, القيّم = values"}
+{"page": 72, "line": 15, "token": "عُمانُ", "skeleton": "عمان", "vault_form": "عثمان", "verdict": "accept", "reason": "target is the city Amman vs the caliph عثمان; dotting slip"}
+{"page": 72, "line": 18, "token": "سَْغدُ", "skeleton": "سغد", "vault_form": "سعد", "verdict": "accept", "reason": "not an Arabic word; target سعد بن أبي وقاص / بن عبادة"}
+{"page": 72, "line": 20, "token": "زَمْعَةَ", "skeleton": "زمعة", "vault_form": "قمعة", "verdict": "reject", "reason": "REVERSE: زمعة is a real name (زمعة بن الأسود); قمعة splits as قَمْع+هُ = repression+his"}
+{"page": 73, "line": 9, "token": "سَغد", "skeleton": "سغد", "vault_form": "سعد", "verdict": "accept", "reason": "not an Arabic word; target سعد بن أبي وقاص / بن عبادة"}
+{"page": 73, "line": 12, "token": "سَغدِ", "skeleton": "سغد", "vault_form": "سعد", "verdict": "accept", "reason": "not an Arabic word; target سعد بن أبي وقاص / بن عبادة"}
+{"page": 73, "line": 19, "token": "نَوْقَل", "skeleton": "نوقل", "vault_form": "نوفل", "verdict": "accept", "reason": "ق/ف dotting slip; target نوفل بن الحارث"}
+{"page": 76, "line": 6, "token": "زمعَة", "skeleton": "زمعة", "vault_form": "قمعة", "verdict": "reject", "reason": "REVERSE: زمعة is a real name (زمعة بن الأسود); قمعة splits as قَمْع+هُ = repression+his"}
+{"page": 76, "line": 9, "token": "عُقبَة", "skeleton": "عقبة", "vault_form": "عتبة", "verdict": "accept", "reason": "عقبة = obstacle; target عتبة بن غزوان (companion)"}
+{"page": 78, "line": 18, "token": "عُمَير", "skeleton": "عمير", "vault_form": "حمير", "verdict": "reject", "reason": "REVERSE: عمير is a proper noun; the vault target حمير = donkeys"}
+{"page": 81, "line": 17, "token": "القرْم", "skeleton": "القرم", "vault_form": "القيّم", "verdict": "reject", "reason": "NEITHER IS A NAME: القرم = studhorse, القيّم = values"}
+{"page": 83, "line": 12, "token": "غَامِرِ", "skeleton": "غامر", "vault_form": "عامر", "verdict": "accept", "reason": "غامر is a verb form; target عامر (proper noun)"}
+{"page": 83, "line": 12, "token": "نَوْقَل", "skeleton": "نوقل", "vault_form": "نوفل", "verdict": "accept", "reason": "ق/ف dotting slip; target نوفل بن الحارث"}
+{"page": 83, "line": 19, "token": "عَمرر", "skeleton": "عمرر", "vault_form": "عمرو", "verdict": "accept", "reason": "not an Arabic word (NO_ANALYSIS); عمرو is the historical figure"}
+{"page": 84, "line": 12, "token": "سَعِيدِ", "skeleton": "سعيد", "vault_form": "سعد", "verdict": "reject", "reason": "REAL NAME COLLISION: سعيد بن المسيب is a famous تابعي; سعد is a different companion"}
+{"page": 85, "line": 14, "token": "عَمْرر", "skeleton": "عمرر", "vault_form": "عمرو", "verdict": "accept", "reason": "not an Arabic word (NO_ANALYSIS); عمرو is the historical figure"}
+{"page": 91, "line": 8, "token": "كغبَ", "skeleton": "كغب", "vault_form": "كعب", "verdict": "accept", "reason": "wrong clitic split (كَ+غِبّ); target كعب بن مالك/الأشرف"}
+{"page": 95, "line": 17, "token": "وسَعِدُ", "skeleton": "وسعد", "vault_form": "سعد", "verdict": "reject", "reason": "unreviewed skeleton - default to reject (no signal justifies applying)"}
+{"page": 96, "line": 20, "token": "عَمْرر", "skeleton": "عمرر", "vault_form": "عمرو", "verdict": "accept", "reason": "not an Arabic word (NO_ANALYSIS); عمرو is the historical figure"}
+{"page": 99, "line": 11, "token": "عَمْرر", "skeleton": "عمرر", "vault_form": "عمرو", "verdict": "accept", "reason": "not an Arabic word (NO_ANALYSIS); عمرو is the historical figure"}
+{"page": 99, "line": 12, "token": "عُمَان", "skeleton": "عمان", "vault_form": "عثمان", "verdict": "accept", "reason": "target is the city Amman vs the caliph عثمان; dotting slip"}
+{"page": 101, "line": 8, "token": "كُغبِ", "skeleton": "كغب", "vault_form": "كعب", "verdict": "accept", "reason": "wrong clitic split (كَ+غِبّ); target كعب بن مالك/الأشرف"}
+{"page": 101, "line": 11, "token": "غَامِر", "skeleton": "غامر", "vault_form": "عامر", "verdict": "accept", "reason": "غامر is a verb form; target عامر (proper noun)"}
+{"page": 102, "line": 9, "token": "عَمرر", "skeleton": "عمرر", "vault_form": "عمرو", "verdict": "accept", "reason": "not an Arabic word (NO_ANALYSIS); عمرو is the historical figure"}
+{"page": 103, "line": 12, "token": "كُغْبِ", "skeleton": "كغب", "vault_form": "كعب", "verdict": "accept", "reason": "wrong clitic split (كَ+غِبّ); target كعب بن مالك/الأشرف"}
+{"page": 103, "line": 13, "token": "سُغدِ", "skeleton": "سغد", "vault_form": "سعد", "verdict": "accept", "reason": "not an Arabic word; target سعد بن أبي وقاص / بن عبادة"}
+{"page": 110, "line": 9, "token": "حَام", "skeleton": "حام", "vault_form": "سام", "verdict": "accept", "reason": "context is كوش بن حام (the lineage figure); target سام بن نوح"}

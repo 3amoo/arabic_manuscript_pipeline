@@ -242,8 +242,50 @@ def plan_vault_corrections(
         candidates.sort(key=lambda t: (t[0], -sum(t[2].values())))
         if len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
             # Tie at the minimum distance: two equally-close vault names.
-            # Not evidence. Leave for the review queue.
-            continue
+            # Prefer the target the human review picked for THIS
+            # skeleton: the review resolves exactly the ambiguity the
+            # guards cannot (measured: حام ties سام the lineage figure
+            # against كام, a كَ+أُمّ split of the verse word كامِلاً;
+            # عمان ties عثمان the caliph against عفان, another real
+            # name, and evidence weight picks the wrong one).
+            reviewed_target = _REVIEW_TARGETS.get(skel)
+            if reviewed_target is not None:
+                picked = [c for c in candidates if c[1] == reviewed_target]
+                if picked:
+                    candidates = picked
+                else:
+                    continue
+            elif sum(candidates[0][2].values()) == sum(candidates[1][2].values()):
+                # A residual tie — equal distance AND equal evidence —
+                # still declines: a coin flip is not evidence.
+                continue
+            else:
+                # Resolve by vault evidence weight: a name the vault
+                # records 11 times is a far more likely target than one it
+                # records twice. Measured: عمرر ties عمرو(11) vs عمر(5)
+                # and resolves correctly to عمرو.
+                # Evidence weight alone can still pick a pollutant — a
+                # non-name that happens to sit next to بن enters the
+                # vault index with its own count (measured: كام, a
+                # كَ+أُمّ split attested 2x, beat سام 1x and would have
+                # introduced a wrong correction). Require the winner to
+                # be a lexicon proper noun: source=lex means the analyzer
+                # found the exact word; spvar/backoff mean it guessed a
+                # segmentation instead. pos alone does not separate them
+                # (both come back noun_prop).
+                if not _is_proper_noun(canonical_form(candidates[0][2])):
+                    continue
+                # Evidence weight alone can still pick a pollutant: a
+                # non-name that happens to sit next to بن enters the
+                # vault index with its own count (measured: كام, a
+                # كَ+أُمّ split attested 2x, beat سام 1x and would have
+                # introduced a wrong correction). Require the winner to
+                # be a lexicon proper noun — source=lex means the
+                # analyzer found the exact word; spvar/backoff mean it
+                # guessed a segmentation instead. pos alone does not
+                # separate them (both come back noun_prop).
+                if not _is_proper_noun(canonical_form(candidates[0][2])):
+                    continue
         dist, match_skel, forms = candidates[0]
         vault_form = canonical_form(forms)
         # Guard 3: base letters must differ. This module exists to fix
@@ -255,18 +297,40 @@ def plan_vault_corrections(
         # Guard 4: never impose a declension. See is_declension_alef.
         if is_declension_alef(occ["token"], vault_form):
             continue
-        # Guard 5 (Group E's directional rule, verbatim). The vault form
-        # must carry at least as many marks as the OCR form, unless the
-        # OCR form is garbled (stacked marks are an artifact, safe to
-        # discard regardless of direction). Without this the corrector
-        # would strip good diacritics the OCR actually got right.
+        # Guard 5 (Group E's directional rule, relaxed for the vault
+        # path). Group E refuses when the target carries fewer marks than
+        # the OCR form, because the internal majority is often the bare
+        # skeleton and the minority a correctly-marked real reading.
+        # That reasoning does not transfer here: the target is the vault's
+        # human-verified spelling, and the OCR form's marks are
+        # PaddleOCR noise on a garbled token (measured: كُغبُ carries
+        # 2 stray marks against the vault's clean كعب; the corpus reads
+        # عمرو cleanly 14 times while garbling it as عَمرر 11 times).
+        # What must still be refused is OVERWRITING A REAL READING'S
+        # marks. The distinguishing signal is whether the OCR marks are
+        # part of a word the corpus reads correctly elsewhere: if the
+        # vault target is attested in the corpus as a clean name, the
+        # OCR form is a garbling of it and its marks are noise; if the
+        # target is never read cleanly anywhere, the correction is
+        # reaching for a form the corpus does not support, and the
+        # direction guard keeps refusing.
         if not is_garbled(occ["token"]):
             if diacritic_count(vault_form) < diacritic_count(occ["token"]):
-                continue
+                # Overridden when the review accepted this skeleton: the
+                # human judgment is authority on whether the OCR marks
+                # are noise (measured: they are — the corpus reads عمرو
+                # cleanly 14 times while garbling it as عَمرر 11 times).
+                if not (_target_attested_in_corpus(match_skel, records)
+                        or review_accepts(skel)):
+                    continue
         # Guard 6: the vault target must be corroborated. A form the
         # vault records once is one person's transcription, not a
-        # consensus to rewrite the corpus toward.
-        if sum(forms.values()) < min_vault_evidence:
+        # consensus to rewrite the corpus toward. Overridden when the
+        # human review marked this skeleton accept: the review IS the
+        # corroboration, and it measured real cases the vault records
+        # once (هشام, عتبة, سام, عثمان, نوفل) that are unambiguously
+        # correct in context.
+        if sum(forms.values()) < min_vault_evidence and not review_accepts(skel):
             continue
         key = (skel, match_skel)
         rec = by_pair.get(key)
@@ -287,13 +351,91 @@ def plan_vault_corrections(
             by_pair[key] = rec
         rec["minority_count"] += 1
         rec["occurrences"].append(
-            {"page": occ["page"], "line": occ["line"], "file": occ["file"]}
+            {"page": occ["page"], "line": occ["line"], "file": occ["file"],
+             "token_index": occ.get("token_index")}
         )
     corrections = list(by_pair.values())
     # Busiest corrections first: a skeleton the corpus gets wrong many
     # times is the highest-value fix.
     corrections.sort(key=lambda c: -c["minority_count"])
     return corrections
+
+
+def _is_proper_noun(form: str) -> bool:
+    """True when camel_tools classifies the form as a *lexicon* proper
+    noun rather than a clitic split or common word.
+
+    Used by guard 2's tie-break. The vault index is built from chain
+    adjacency in prose, so a non-name word that happens to sit next to
+    بن enters the index with its own count; evidence weight alone then
+    prefers it over a real name. Measured case: حام ties سام (the
+    lineage figure, 1 attestation) against كام (2 attestations, from
+    كَ+أُمّ "like Umm", a split of the verse word كامِلاً) — evidence
+    weight picks كام, the wrong answer. The lexicon separates them:
+    سام analyses from source=lex with a name gloss; كام is source=spvar,
+    a split *guess* whose own breakdown is PREP+NOUN_PROP.
+
+    The pos field alone does NOT separate them (both are noun_prop) —
+    the split guess inherits the pos of its final component. The source
+    field is the signal: spvar/backoff mean the form was not found as a
+    single word and the analyzer constructed a segmentation instead.
+
+    camel_tools is an MSA lexicon and its notion of proper-nounhood is a
+    heuristic, not an authority on Classical genealogy — it is used only
+    to refuse, never to accept, so a false negative (a real name it does
+    not know) declines a correction rather than imposing a wrong one.
+    """
+    from camel_tools.disambig.mle import MLEDisambiguator
+
+    if not hasattr(_is_proper_noun, "_mle"):
+        try:
+            _is_proper_noun._mle = MLEDisambiguator.pretrained("calima-msa-r13")
+        except Exception:
+            # The lexicon is optional: it is only ever used to REFUSE a
+            # correction, never to accept one, so a missing model degrades
+            # to the strict behaviour (tie declines) rather than failing
+            # the run. Under HOME=./data/temp (verify_all) the camel_tools
+            # data dir is absent and pretrained() raises FileNotFoundError.
+            _is_proper_noun._mle = None
+    if _is_proper_noun._mle is None:
+        return False
+    analysis = _is_proper_noun._mle.disambiguate([strip_diacritics(form)])
+    if not analysis or not analysis[0].analyses:
+        return False
+    info = analysis[0].analyses[0].analysis
+    if info.get("pos") != "noun_prop":
+        return False
+    # source=lex means the analyzer found this exact word in its
+    # lexicon. spvar/backoff mean it guessed a segmentation instead —
+    # exactly the clitic-split pollutant the guard exists to reject.
+    return info.get("source") == "lex"
+
+
+def _target_attested_in_corpus(skeleton: str, records: List[Dict[str, object]]) -> bool:
+    """True when the corpus reads this skeleton as a clean name somewhere.
+
+    Used by guard 5 to distinguish an OCR garbling whose stray marks are
+    noise (the target is a real, cleanly-attested name the OCR got right
+    elsewhere) from a correction reaching for a form the corpus never
+    supports (where the direction guard must keep refusing).
+    """
+    for rec in records:
+        for tok in rec["text"].split():
+            if strip_diacritics(tok) == skeleton:
+                return True
+    return False
+
+
+# Populated by main() from the Task 4 review file. Guards 2 and 6 consult
+# these so a target the human review confirmed can override the
+# ambiguity-tie refusal and the minimum-evidence threshold — the review is
+# the authority on both.
+_REVIEW_ACCEPTED: set = set()
+_REVIEW_TARGETS: Dict[str, str] = {}
+
+
+def review_accepts(skeleton: str) -> bool:
+    return skeleton in _REVIEW_ACCEPTED
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +473,43 @@ def print_report(
         print("  the log.")
 
 
+def load_review_verdicts(path: Path) -> Dict[str, str]:
+    """Load the human review of the near-miss queue (Task 4 output).
+
+    The review is the decision layer: no signal in the pipeline can
+    separate a garbled token from a genuinely distinct name (measured
+    across four discriminators — see DISCRIMINATOR_MEASUREMENTS.md), so
+    the corrector's guards propose candidates and the human review
+    decides. Returns a skeleton -> verdict map.
+    """
+    if not path.is_file():
+        return {}
+    verdicts: Dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        rec = json.loads(line)
+        verdicts[rec["skeleton"]] = rec.get("verdict", "")
+    return verdicts
+
+
+def _review_targets(path: Path) -> Dict[str, str]:
+    """Skeleton -> the vault form the review accepted, for guard 2's
+    tie-break between equally-close candidates."""
+    if not path.is_file():
+        return {}
+    targets: Dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        rec = json.loads(line)
+        if rec.get("verdict") == "accept":
+            targets[rec["skeleton"]] = strip_diacritics(rec["vault_form"])
+    return targets
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(
         description="Vault-confirmed name correction (Phase 1)."
@@ -342,6 +521,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--min-vault-evidence", type=int, default=MIN_VAULT_EVIDENCE)
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--log", default="logs/vault_vote_corrections.jsonl")
+    ap.add_argument(
+        "--review",
+        default="logs/vault_review_56.jsonl",
+        help="human review file (Task 4); when present, only skeletons "
+        "marked accept are applied under --apply, and the rest are "
+        "reported as rejected with their recorded reason",
+    )
     args = ap.parse_args(argv)
 
     # Resolve the vault the same way Group D does when the caller omits it.
@@ -357,12 +543,40 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not document_dir.is_dir():
         raise SystemExit("no such document dir: %s" % document_dir)
 
+    # The human review gates the whole decision. Loaded BEFORE planning
+    # because guard 6 consults it: a vault target the review confirmed
+    # overrides the minimum-evidence threshold. Without the review the
+    # corrector proposes 11 corrections of which Task 4 rejected 6
+    # (34 of the 56 queue rows accepted, 22 rejected) — the guards
+    # cannot make that distinction themselves.
+    verdicts = load_review_verdicts(Path(args.review))
+    _REVIEW_ACCEPTED.update(
+        sk for sk, v in verdicts.items() if v == "accept"
+    )
+    # The review file carries the vault form each accepted skeleton was
+    # reviewed against; guard 2's tie-break uses it to pick between
+    # equally-close candidates.
+    _REVIEW_TARGETS.update(_review_targets(Path(args.review)))
+
     records = load_corpus(document_dir)
     vault_index = build_vault_index(vault)
     occurrences = extract_ocr_names(records)
     corrections = plan_vault_corrections(
         records, vault_index, args.max_edit_distance, args.min_vault_evidence
     )
+
+    if verdicts:
+        accepted, rejected = [], []
+        for c in corrections:
+            (accepted if verdicts.get(c["skeleton"]) == "accept"
+             else rejected).append(c)
+        if rejected and args.apply:
+            print("  human review (%s): %d of %d proposed corrections REJECTED"
+                  " - not applied:" % (args.review, len(rejected), len(corrections)))
+            for c in rejected:
+                print("    %-14s -> %-14s  (not applied)" % (c["minority_form"], c["corrected_to"]))
+            print()
+        corrections = accepted
 
     print_report(corrections, vault_index, occurrences, args)
     write_log(corrections, Path(args.log))

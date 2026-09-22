@@ -239,7 +239,7 @@ def extract_ocr_names(records: List[Dict[str, object]]) -> List[Dict[str, object
                                 occurrences.append(
                                     {"token": w, "skeleton": k,
                                      "page": rec["page"], "line": rec["line"],
-                                     "file": rec["file"]}
+                                     "file": rec["file"], "token_index": j}
                                 )
     accepted = {k for k, lines in evidence.items() if len(lines) >= _MIN_OCR_EVIDENCE}
     return [o for o in occurrences if o["skeleton"] in accepted]

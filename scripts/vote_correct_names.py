@@ -358,20 +358,34 @@ def apply_corrections(
     mechanisms never write to the same place."""
     out_dir = document_dir / out_name
     out_dir.mkdir(parents=True, exist_ok=True)
-    # Map (page, minority_form) -> majority_form.
-    fix_map: Dict[Tuple[int, str], str] = {}
+    # Map (page, line, token_index) -> replacement. Keying on the exact
+    # surface FORM was wrong for the vault path: one skeleton can be
+    # garbled several ways (كُغبُ and كَُغْبِ are both كعب), and a
+    # (page, form) key replaced only the first-seen spelling, silently
+    # skipping the others. The occurrence records carry exact locations,
+    # so key on those instead — but fall back to form matching for
+    # callers whose occurrences are not token-indexed.
+    fix_map: Dict[Tuple[int, int, int], str] = {}
+    form_map: Dict[Tuple[int, str], str] = {}
     for c in corrections:
         for occ in c["occurrences"]:
-            fix_map[(occ["page"], c["minority_form"])] = c["corrected_to"]
+            if "token_index" in occ:
+                fix_map[(occ["page"], occ["line"], occ["token_index"])] = c["corrected_to"]
+            else:
+                form_map[(occ["page"], c["minority_form"])] = c["corrected_to"]
     n_pages = 0
     for page_file in sorted((document_dir / "raw_text").glob("page_*.txt")):
         page_num = int(page_file.stem.split("_")[1])
         out_lines = []
         changed = False
-        for line in page_file.read_text(encoding="utf-8").splitlines():
+        for line_no, line in enumerate(
+            page_file.read_text(encoding="utf-8").splitlines(), 1
+        ):
             tokens = line.split()
             for i, tok in enumerate(tokens):
-                fix = fix_map.get((page_num, tok))
+                fix = fix_map.get((page_num, line_no, i))
+                if fix is None:
+                    fix = form_map.get((page_num, tok))
                 if fix is not None:
                     tokens[i] = fix
                     changed = True

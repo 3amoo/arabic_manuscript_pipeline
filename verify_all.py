@@ -49,7 +49,18 @@ PY = str(REPO / "myenv" / "bin" / "python")
 # '#' on purpose so evaluate_cer.normalize_text() skips it as a header
 # line - the CER/WER/diacritics numbers above are unchanged by this fix
 # (23.7/59.8/83.1 confirmed after the full re-run).
-INVARIANT = "a5f14b1e5f8c172ae01b"
+# Updated 2026-09-22 (Phase 1 Task 5): 34 human-confirmed vault
+# corrections applied (10 skeletons: عَمرر/عمرو ×11, كغب/كعب ×5,
+# سغد/سعد ×4, مشام/هشام ×3, ومب/وهب ×2, حام/سام ×2, عقبة/عتبة ×2,
+# عمان/عثمان ×2, نوقل/نوفل ×2, غامر/عامر ×2) into a NEW directory
+# data/output/<doc>/vault_corrected_text/ — raw_text/ is untouched. The
+# hash moves because it counts every .txt under data/output, and 113 new
+# page files now exist. This is the expected consequence of applying
+# corrections, not a regression: the 22 rejected rows (يداد, سعيد,
+# عمير, حزن, القرم, زمعة, and 6 declension artifacts) were reviewed and
+# excluded by logs/vault_review_56.jsonl. Benchmark unchanged at
+# 23.7/59.8/83.1 (raw_text is the benchmark input).
+INVARIANT = "afad71901e5a936c44bf"
 TEST_MODULES = [
     "tests.test_gt_alignment",
     "tests.test_diacritic_metrics",
