@@ -191,3 +191,51 @@ audit-only — can now be answered on real grounds rather than deferred:
 | 4 | GT-verification gate for future corrections | IMPORTANT | Prevents this failure mode going forward |
 | 5 | Document confirmation tiers honestly | NORMAL | Gives Phase 2 and future readers real confidence data |
 | 6 | Resolve audit-vs-consumed layer question | NORMAL | Unblocked once 1–3 are done; decide on real evidence |
+
+---
+
+## Results
+
+### Task 3 audit table (all 34 original corrections)
+
+Built by locating each corrected verse in the GT via rare-word voting,
+then comparing spellings at that verse.
+
+| Status | Count | Meaning |
+|---|---|---|
+| GT_CONFIRMS | 3 | GT carries the corrected spelling: هشام (p48), عمرو (p49), كعب (p50) |
+| GT_CONFIRMS_VARIANT | 3 | Construct state: عمرو before بن is written عمر (p36, p53, p65) |
+| REVERTED | 4 | عقبة->عتبة (p44, p76) and حام->سام (p16, p110) |
+| IN_SCOPE_UNVERIFIABLE | 4 | Prose lines: the GT is a verse transcription, so prose corrections can't be checked |
+| IN_SCOPE_NO_VERSE_MATCH | 1 | p38 — in range but no GT verse matches the garbled line |
+| OUT_OF_GT_SCOPE | 19 | The GT's 620 verses end at page 67 (verified: verse 620 is the page-67 line وَمَنْتَلَى فِي عَزْلِه الفَارُوق) |
+
+No contradictions remain. The two the audit found (عقبة, حام) were both
+review errors with the same cause: the reviewer matched a skeleton to
+the nearest vault entry without checking which PERSON the passage
+describes. For عقبة the vault has no skeleton at all (only عتبة), so the
+corrector was matching against a gap in the vault, not evidence.
+
+### Task 4 gate behaviour (measured against the live corpus)
+
+- 6 confirms (3 direct + 3 construct-state)
+- 4 unverifiable (prose — the gate refuses to match prose against verses)
+- 1 unverifiable (no verse match)
+- p44's عتبة correctly detected as a **contradiction**
+- 19 out-of-scope, gate records `gt_scope: false`
+
+Three edge cases the implementation had to handle, each measured:
+
+1. **Vote threshold.** Demanding ≥2 rare words per line found nothing —
+   heavy OCR garbling leaves one surviving rare word per line (p48's
+   مسنعغود matches only GT verse 351's مسعود). The threshold is the
+   word's rarity (df≤4 across 620 verses), not a vote count.
+2. **Construct state.** عمرو before بن is written عمر; the gate would
+   have emitted 3 false contradictions without recognising this.
+3. **Prose.** p9 l24's يزدجرد spuriously matched a GT verse about
+   Persian kings. Only lines with the `...` hemistich separator are
+   verse lines; prose returns unverifiable.
+
+The gate hard-blocks a contradicted occurrence in `main()` even when the
+review accepted the skeleton — the review accepts the SKELETON, the GT
+contradicts the OCCURRENCE, and p44 was exactly that case.

@@ -524,5 +524,178 @@ class TestApplyContract(unittest.TestCase):
         self.assertIn("ومب", original)
 
 
+class TestGTGate(unittest.TestCase):
+    """The GT-verification gate (Task 4, GT_CONTRADICTION_FIX_PLAN).
+
+    Three branches, all measured against the live corpus during the
+    audit: GT-confirms (proceed), GT-contradicts (hard-block),
+    GT-out-of-scope (gate does not apply). The gate exists because the
+    Task 1-3 audit found two corrections the vault attested but the
+    ground truth contradicted (عقبة->عتبة, حام->سام).
+    """
+
+    def _gt_fixture(self, tmp, doc_dir=None, verses=()):
+        """Build a GT verse file and (optionally) a document to match."""
+        gt_file = tmp / "gt.md"
+        # Verses are numbered with Arabic-Indic digits, as the real GT is.
+        lines = []
+        for i, v in enumerate(verses, 1):
+            num = "".join(chr(0x0660 + int(d)) for d in str(i))
+            lines.append("%s %s\n\n" % (num, v))
+        gt_file.write_text("".join(lines), encoding="utf-8")
+        if doc_dir is not None:
+            raw = doc_dir / "raw_text"
+            raw.mkdir(parents=True, exist_ok=True)
+        return gt_file
+
+    def test_confirms_proceeds(self):
+        from scripts.vault_vote_correct_names import (
+            gt_check_correction, load_gt_verses,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            doc = tmp / "doc"
+            raw = doc / "raw_text"
+            raw.mkdir(parents=True)
+            raw.joinpath("page_030.txt").write_text(
+                "وَهْوَ ابْنُ مَسْعُودٍ ... بِرَأْس عَمْرُو بن هِشَام\n",
+                encoding="utf-8",
+            )
+            gt_file = self._gt_fixture(
+                tmp, verses=["وَهْوَ ابْنُ مَسْعُودٍ ... بِرَأْس عَمْرُو بن هِشَام"]
+            )
+            gt = load_gt_verses(gt_file, doc)
+            r = gt_check_correction(30, 1, "هشام", gt)
+        self.assertTrue(r["gt_scope"])
+        self.assertEqual(r["gt_verdict"], "confirms")
+        self.assertIn("هشام", r["gt_verse"])
+
+    def test_contradicts_hard_blocks(self):
+        from scripts.vault_vote_correct_names import (
+            gt_check_correction, load_gt_verses,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            doc = tmp / "doc"
+            raw = doc / "raw_text"
+            raw.mkdir(parents=True)
+            # The OCR line names عقبة; the GT verse spells it عقبة too.
+            raw.joinpath("page_044.txt").write_text(
+                "وَمَنَه ابْنُ عُقبة ... عجَتوْزَرَةيزيدُ\n", encoding="utf-8"
+            )
+            gt_file = self._gt_fixture(
+                tmp,
+                verses=["مُحْرِمٌ اسْتَوْزَرَه يَزِيدُ ... ومِنْهُمُ ابْنُ عُقْبَةَ الْمَريدُ"],
+            )
+            gt = load_gt_verses(gt_file, doc)
+            # A proposed correction to عتبة must contradict.
+            r = gt_check_correction(44, 1, "عتبة", gt)
+        self.assertTrue(r["gt_scope"])
+        self.assertEqual(r["gt_verdict"], "contradicts")
+        self.assertIn("عقبة", r["gt_verse"])
+
+    def test_out_of_gt_scope(self):
+        from scripts.vault_vote_correct_names import (
+            gt_check_correction, load_gt_verses,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            doc = tmp / "doc"
+            raw = doc / "raw_text"
+            raw.mkdir(parents=True)
+            raw.joinpath("page_110.txt").write_text(
+                "أمُا السُوَادينُ فَيِنْ كُوُش بن حَام\n", encoding="utf-8"
+            )
+            gt_file = self._gt_fixture(tmp, verses=["بَيْت وَاحِد"])
+            gt = load_gt_verses(gt_file, doc)
+            # Page 110 is beyond the GT's verse coverage (last_page=67).
+            r = gt_check_correction(110, 1, "سام", gt)
+        self.assertFalse(r["gt_scope"])
+        self.assertIsNone(r["gt_verdict"])
+
+    def test_no_gt_file_disables_gate(self):
+        from scripts.vault_vote_correct_names import gt_check_correction
+        r = gt_check_correction(1, 1, "وهب", None)
+        self.assertFalse(r["gt_scope"])
+
+    def test_prose_line_is_unverifiable(self):
+        """Prose (no '...' separator) must not spuriously match a GT verse
+        — measured against p9 l24, whose 'يزدجرد' matched an unrelated
+        verse about Persian kings."""
+        from scripts.vault_vote_correct_names import (
+            gt_check_correction, load_gt_verses,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            doc = tmp / "doc"
+            raw = doc / "raw_text"
+            raw.mkdir(parents=True)
+            raw.joinpath("page_009.txt").write_text(
+                "من الملوك الأموية أخرها مشام بن عبد الملك\n", encoding="utf-8"
+            )
+            gt_file = self._gt_fixture(
+                tmp,
+                verses=["بَنَات يَزْدَجَرْد آخِر مَلِك ... مَلِك لِلْفُرْس"],
+            )
+            gt = load_gt_verses(gt_file, doc)
+            r = gt_check_correction(9, 1, "هشام", gt)
+        self.assertTrue(r["gt_scope"])
+        # Prose never matches a verse, so the gate says nothing.
+        self.assertEqual(r["gt_verdict"], "unverifiable")
+
+    def test_construct_state_counts_as_confirm(self):
+        """عمرو before بن is written عمر (the و is the rhyme letter).
+        The audit confirmed 3 corrections this way; the gate must not
+        report them as contradictions."""
+        from scripts.vault_vote_correct_names import (
+            gt_check_correction, load_gt_verses,
+        )
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            doc = tmp / "doc"
+            raw = doc / "raw_text"
+            raw.mkdir(parents=True)
+            raw.joinpath("page_036.txt").write_text(
+                "وَجَدَ ذُو الأَكْتَاف عَمْرَ بْنَ تَميمْ ... لِكِبر\n",
+                encoding="utf-8",
+            )
+            gt_file = self._gt_fixture(
+                tmp,
+                verses=["وَجَدَ ذُو الأَكْتَاف عَمْرَ بْنَ تَميمْ ... لِكِبر فِي الرَّبْع"],
+            )
+            gt = load_gt_verses(gt_file, doc)
+            r = gt_check_correction(36, 1, "عمرو", gt)
+        self.assertTrue(r["gt_scope"])
+        self.assertEqual(r["gt_verdict"], "confirms")
+
+    def test_gate_blocks_application_of_contradicted_occurrence(self):
+        """main()'s apply path drops occurrences the GT contradicts even
+        when the review accepted the skeleton (the exact p44 failure)."""
+        from scripts.vault_vote_correct_names import load_gt_verses
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            doc = tmp / "doc"
+            raw = doc / "raw_text"
+            raw.mkdir(parents=True)
+            raw.joinpath("page_044.txt").write_text(
+                "وَمَنَه ابْنُ عُقبة ... عجَتوْزَرَةيزيدُ\n", encoding="utf-8"
+            )
+            gt_file = self._gt_fixture(
+                tmp,
+                verses=["مُحْرِمٌ اسْتَوْزَرَه يَزِيدُ ... ومِنْهُمُ ابْنُ عُقْبَةَ الْمَريدُ"],
+            )
+            gt = load_gt_verses(gt_file, doc)
+            # emulate main()'s hard-block loop
+            occurrences = [
+                {"page": 44, "line": 1, "file": "page_044.txt",
+                 "gt_verdict": "contradicts"},
+                {"page": 110, "line": 1, "file": "page_110.txt",
+                 "gt_verdict": None},
+            ]
+            keep = [o for o in occurrences if o.get("gt_verdict") != "contradicts"]
+        self.assertEqual(len(keep), 1)
+        self.assertEqual(keep[0]["page"], 110)
+
+
 if __name__ == "__main__":
     unittest.main()

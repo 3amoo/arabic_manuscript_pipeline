@@ -79,6 +79,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -198,10 +199,17 @@ def plan_vault_corrections(
     vault_index: Dict[str, object],
     max_dist: int,
     min_vault_evidence: int,
+    gt: Optional[Dict[str, object]] = None,
+    gt_doc_dir: Optional[Path] = None,
 ) -> List[Dict[str, object]]:
     """Decide which OCR tokens the vault proves wrong. Each correction
     records its full provenance so the vault-sourced fixes stay isolable
-    from the internal-vote fixes - see the module docstring."""
+    from the internal-vote fixes - see the module docstring.
+
+    gt (from load_gt_verses) adds the GT-verification gate: corrections
+    landing inside the GT's verse coverage are checked against the
+    transcription, and a GT contradiction hard-blocks the correction.
+    """
     # Group E's chain-evidence filter, via the same extractor Group D
     # uses: a token is a name candidate only if it sits adjacent to a
     # chain marker in at least two distinct lines.
@@ -350,9 +358,21 @@ def plan_vault_corrections(
             }
             by_pair[key] = rec
         rec["minority_count"] += 1
+        # The GT gate: a correction landing inside the GT's verse coverage
+        # is checked against the transcription. A contradiction hard-blocks
+        # the occurrence (Task 4, GT_CONTRADICTION_FIX_PLAN). Applied per
+        # occurrence, not per skeleton: p44 and p76 share one skeleton but
+        # only p44 sits inside GT coverage, and the GT verdict for the
+        # other must not be inferred from the first.
+        gt_rec = gt_check_correction(
+            occ["page"], occ["line"], prefix + vault_form, gt
+        )
+        rec.setdefault("gt_verdicts", []).append(gt_rec)
         rec["occurrences"].append(
             {"page": occ["page"], "line": occ["line"], "file": occ["file"],
-             "token_index": occ.get("token_index")}
+             "token_index": occ.get("token_index"),
+             "gt_scope": gt_rec["gt_scope"],
+             "gt_verdict": gt_rec["gt_verdict"]}
         )
     corrections = list(by_pair.values())
     # Busiest corrections first: a skeleton the corpus gets wrong many
@@ -409,6 +429,151 @@ def _is_proper_noun(form: str) -> bool:
     # lexicon. spvar/backoff mean it guessed a segmentation instead —
     # exactly the clitic-split pollutant the guard exists to reject.
     return info.get("source") == "lex"
+
+
+def load_gt_verses(gt_file: Path, doc_dir: Optional[Path] = None) -> Optional[Dict[str, object]]:
+    """Parse the GT verse transcription into a page/line -> verse index.
+
+    The GT is a numbered verse transcription (620 verses). Verses are
+    located in the OCR corpus by content, not by line number: the OCR
+    transposes hemistichs, garbles words, and interleaves prose, so a
+    positional lookup is useless. This builds a rare-word -> verse
+    index, then resolves a corpus line by voting on its rarest words.
+
+    Returns None when the GT file is absent, which disables the GT gate
+    entirely (verify_all runs with HOME=./data/temp; the GT is still
+    readable from the repo path, but tests that pass a temp dir get the
+    gate off rather than failing).
+    """
+    if not gt_file.is_file():
+        return None
+    verses: List[str] = []
+    for raw in gt_file.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"^[\u0660-\u0669]+\s+(.*)$", raw.strip())
+        if m:
+            verses.append(strip_diacritics(m.group(1)))
+    if not verses:
+        return None
+    # rare-word -> set of verse indices (df<=4: common words match too
+    # many verses to pin one; measured against the 620-verse corpus)
+    df: Dict[str, int] = {}
+    for v in verses:
+        for w in set(v.split()):
+            df[w] = df.get(w, 0) + 1
+    idx: Dict[str, List[int]] = {}
+    for i, v in enumerate(verses):
+        for w in set(v.split()):
+            if df[w] <= 4:
+                idx.setdefault(w, []).append(i)
+
+    def verse_at(page: int, line: int) -> Optional[str]:
+        """Locate the GT verse for a corpus line by rare-word voting."""
+        if doc_dir is None:
+            return None
+        _doc = doc_dir / "raw_text" / f"page_{page:03d}.txt"
+        if not _doc.is_file():
+            return None
+        page_lines = _doc.read_text(encoding="utf-8").splitlines()
+        if not (1 <= line <= len(page_lines)):
+            return None
+        text = page_lines[line - 1]
+        # Only verse lines carry the hemistich separator. Prose lines
+        # (the manuscript's commentary, e.g. the p11/p16/p76 prose
+        # passages) have none, and their rare words can spuriously match
+        # an unrelated GT verse — measured: p9 l24's 'يزدجرد' matched a
+        # GT verse about the Persian kings, which has nothing to do with
+        # the correction. Refusing prose keeps the gate from emitting
+        # false contradictions.
+        if "..." not in text:
+            return None
+        votes: Dict[int, int] = {}
+        for part in (x for x in text.split("...") if x.strip()) or [text]:
+            for w in strip_diacritics(part).split():
+                if len(w) < 4:
+                    continue
+                for i in idx.get(w, ()):
+                    votes[i] = votes.get(i, 0) + 1
+        if not votes:
+            return None
+        best, n = max(votes.items(), key=lambda kv: kv[1])
+        # A single rare-word hit IS the match: the index only holds words
+        # the whole 620-verse corpus uses <= 4 times, so one such word
+        # shared with a GT verse is already decisive (measured: p48's
+        # garbled 'مسنعغود' matches only GT verse 351's 'مسعود'). The
+        # threshold is the word's rarity, not a vote count — demanding 2
+        # rare words found nothing for the 3 corrections the manual audit
+        # confirmed, because heavy OCR garbling leaves one surviving rare
+        # word per line.
+        return verses[best]
+
+    # the GT's verse coverage ends at page 67 (verified: verse 620 is the
+    # page-67 line 'وماتنى في عزله الفاروق'); corrections beyond it are
+    # outside the GT's reach and the gate records gt_scope: False
+    return {"verses": verses, "df": df, "idx": idx, "verse_at": verse_at,
+            "last_page": 67}
+
+
+def gt_check_correction(
+    page: int,
+    line: int,
+    corrected_to: str,
+    gt: Optional[Dict[str, object]],
+) -> Dict[str, object]:
+    """Verify a proposed correction against the ground-truth transcription.
+
+    The GT is a genuinely independent reference — a manual verse
+    transcription of the same manuscript — and a STRONGER signal than
+    vault attestation alone: the vault records which names exist in the
+    lineage, the GT records what THIS manuscript says at THIS verse.
+    The Task 1-3 audit measured the difference directly: the GT
+    confirmed 6 corrections (عمرو, هشام, كعب+سعد) and contradicted 1
+    (عقبة->عتبة), where the vault had attested the wrong person.
+
+    Returns one of:
+
+      {"gt_scope": False, "gt_verdict": None}
+          beyond GT verse coverage. The gate does not apply; proceed on
+          review evidence alone.
+
+      {"gt_scope": True, "gt_verdict": "confirms", "gt_verse": <str>}
+          the GT carries the corrected spelling at that verse.
+
+      {"gt_scope": True, "gt_verdict": "contradicts", ...}
+          the GT carries a DIFFERENT spelling — the correction would
+          impose the wrong name. HARD-BLOCK: do not apply without an
+          explicit documented human override (logs/vault_reverts.jsonl
+          records the two cases this caught after the fact).
+
+      {"gt_scope": True, "gt_verdict": "unverifiable", ...}
+          in range but no GT verse matches the line (prose, or the verse
+          is outside the aligned window). No signal; proceed on review
+          evidence, but record that the GT said nothing.
+    """
+    if gt is None:
+        return {"gt_scope": False, "gt_verdict": None}
+    if page > gt["last_page"]:
+        return {"gt_scope": False, "gt_verdict": None}
+    target = strip_diacritics(corrected_to)
+    verse = gt["verse_at"](page, line)
+    if verse is None:
+        return {"gt_scope": True, "gt_verdict": "unverifiable"}
+    if target in verse:
+        return {"gt_scope": True, "gt_verdict": "confirms", "gt_verse": verse}
+    # Construct state: a name ending in و loses it before the next word
+    # in the chain (عمرو بن تميم is written عمر بن تميم — the و is the
+    # rhyme letter, dropped in annexation). The manual audit confirmed 3
+    # corrections this way (p36/p53/p65), all عمرو-then-بن. Recognising
+    # it as confirmation rather than contradiction is what keeps the gate
+    # honest about Arabic morphology.
+    if target.endswith("و") and len(target) >= 3 and target[:-1] in verse:
+        return {"gt_scope": True, "gt_verdict": "confirms", "gt_verse": verse,
+                "gt_note": "construct-state variant (%s)" % target[:-1]}
+    return {
+        "gt_scope": True,
+        "gt_verdict": "contradicts",
+        "gt_verse": verse,
+        "gt_skeleton": target,
+    }
 
 
 def _target_attested_in_corpus(skeleton: str, records: List[Dict[str, object]]) -> bool:
@@ -528,6 +693,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         "marked accept are applied under --apply, and the rest are "
         "reported as rejected with their recorded reason",
     )
+    ap.add_argument(
+        "--gt",
+        default="data/ground_truth/عمود النسب/عمود_النسب.clean.md",
+        help="ground-truth verse transcription for the GT-verification "
+        "gate (Task 4); pass an empty string to disable the gate",
+    )
     args = ap.parse_args(argv)
 
     # Resolve the vault the same way Group D does when the caller omits it.
@@ -561,8 +732,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     records = load_corpus(document_dir)
     vault_index = build_vault_index(vault)
     occurrences = extract_ocr_names(records)
+    gt = None
+    if args.gt:
+        gt = load_gt_verses(Path(args.gt), document_dir)
     corrections = plan_vault_corrections(
-        records, vault_index, args.max_edit_distance, args.min_vault_evidence
+        records, vault_index, args.max_edit_distance, args.min_vault_evidence,
+        gt=gt,
     )
 
     if verdicts:
@@ -577,6 +752,34 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print("    %-14s -> %-14s  (not applied)" % (c["minority_form"], c["corrected_to"]))
             print()
         corrections = accepted
+
+    # The GT gate hard-blocks: an occurrence the GT transcription
+    # contradicts is not applied, even when the human review accepted the
+    # skeleton. The review accepted the SKELETON; the GT contradicts this
+    # particular OCCURRENCE (Task 1's عقبة->عتبة was exactly this: the
+    # review accepted the pair, but GT verse 301 spells عُقْبَة at p44).
+    # A contradiction requires either reverting the occurrence or an
+    # explicit documented override in logs/vault_reverts.jsonl.
+    if gt is not None:
+        blocked = []
+        for c in corrections:
+            keep = []
+            for occ in c["occurrences"]:
+                if occ.get("gt_verdict") == "contradicts":
+                    blocked.append((c["skeleton"], occ["page"], occ["line"],
+                                    c["corrected_to"]))
+                    continue
+                keep.append(occ)
+            c["occurrences"] = keep
+            c["minority_count"] = len(keep)
+        corrections = [c for c in corrections if c["occurrences"]]
+        if blocked and args.apply:
+            print("  GT gate: %d occurrence(s) BLOCKED (GT spells the name"
+                  " differently at that verse):" % len(blocked))
+            for sk, pg, ln, to in blocked:
+                print("    %-14s -> %-14s  (p%d l%d) — not applied"
+                      % (sk, to, pg, ln))
+            print()
 
     print_report(corrections, vault_index, occurrences, args)
     write_log(corrections, Path(args.log))
