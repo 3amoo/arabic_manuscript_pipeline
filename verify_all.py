@@ -60,6 +60,13 @@ TEST_MODULES = [
     "tests.test_atria_text_backend",
     "tests.test_benchmark_cer_wer",
     "tests.test_clean_ground_truth",
+    # Phase 0 (NEXT_DEVELOPMENT_PLAN_2): these five were passing but
+    # unwired, so a regression in any of them would not trip this check.
+    "tests.test_fallback_report",
+    "tests.test_marginalia",
+    "tests.test_measure_der",
+    "tests.test_page_layout_detector",
+    "tests.test_regressions",
     "tests.test_noise_crop_gate",
     "tests.test_vote_correct_names",
     "tests.test_genealogy_crossref",
