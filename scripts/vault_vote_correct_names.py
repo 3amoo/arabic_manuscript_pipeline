@@ -81,7 +81,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 # Make `scripts.X` importable when the module is run as a script (the
 # tests insert the repo root themselves; this mirrors measure_der and
@@ -147,6 +147,52 @@ def is_declension_alef(ocr_form: str, vault_form: str) -> bool:
     return vault_core == ocr_core + "ا" or ocr_core == vault_core + "ا"
 
 
+# The Arabic conjunction/clitic prefixes that attach to the following
+# word without a space in unvowelled text: و (wa-, and), ف (fa-, then/so),
+# ب (bi-, by/in), ل (li-, for/to), ك (ka-, like/as). This module strips
+# only the two CONJUNCTIONS (و, ف): the three prepositions (ب ل ك) also
+# attach to the following word but are far more likely to be part of a
+# name's morphology in this corpus, and the guard below would let them
+# through only when the remainder is independently vault-attested anyway.
+CONJUNCTION_PREFIXES = ("و", "ف")
+
+
+def split_conjunction_prefix(
+    token: str, vault_index: Dict[str, object]
+) -> Tuple[str, str]:
+    """Split a leading conjunction prefix off a token.
+
+    وسعد (و + سعد, "and Sa'd") must be matched against the vault as سعد,
+    not as وسعد: the و is a clitic, not part of the name, and treating it
+    as a base letter made the corrector propose وسعد -> سعد, deleting the
+    conjunction from the text.
+
+    Returns (prefix, core). prefix is "" when no prefix is stripped.
+
+    Over-strip guard: some names genuinely begin with و or ف as a root
+    letter (وهب starts with و). Stripping there would match هب, which is
+    not a name at all, and produce a nonsense correction. So the prefix
+    is only stripped when the REMAINDER is itself attested in the vault -
+    i.e. the remainder has independent standing as a name the vault knows,
+    which is the same evidence standard the rest of the module applies to
+    its correction targets.
+    """
+    if len(token) < 4:
+        # Too short for a prefix + a name of >= 3 letters; a 3-letter
+        # token like وهب cannot be و + a 2-letter remainder.
+        return "", token
+    core = strip_diacritics(token)
+    for prefix in CONJUNCTION_PREFIXES:
+        if core.startswith(prefix):
+            remainder = core[len(prefix):]
+            if len(remainder) >= 3 and remainder in vault_index:
+                # Recover the ORIGINAL surface form minus the prefix
+                # (the caller needs the diacritized remainder to correct
+                # toward the right surface form, not just the skeleton).
+                return prefix, token[len(prefix):]
+    return "", token
+
+
 def plan_vault_corrections(
     records: List[Dict[str, object]],
     vault_index: Dict[str, object],
@@ -167,6 +213,12 @@ def plan_vault_corrections(
     by_pair: Dict[tuple, Dict[str, object]] = {}
     for occ in occurrences:
         skel = occ["skeleton"]
+        # Task 1: split a clitic conjunction before matching. وسعد must
+        # match the vault as سعد; the prefix is carried through to the
+        # corrected output so the conjunction is never deleted.
+        prefix, core_token = split_conjunction_prefix(occ["token"], vault_index)
+        if prefix:
+            skel = strip_diacritics(core_token)
         # Guard 1: the OCR reading must be unknown to the vault. If the
         # vault sanctions this skeleton, the surface difference is
         # alternative diacritization, not a base-letter error, and is
@@ -223,7 +275,8 @@ def plan_vault_corrections(
                 "source": "vault_crossref",
                 "skeleton": skel,
                 "minority_form": occ["token"],
-                "corrected_to": vault_form,
+                "conjunction_prefix": prefix,
+                "corrected_to": prefix + vault_form,
                 "edit_distance": dist,
                 "match_skeleton": match_skel,
                 "vault_evidence": dict(forms),
