@@ -76,6 +76,25 @@ PY = str(REPO / "myenv" / "bin" / "python")
 # peoples descend from Kush son of HAM, not Shem), the verse appears
 # twice with حام in both copies, and the next verse names حام again.
 # Reverted; see logs/vault_reverts.jsonl. 30 token fixes remain.
+#
+# CONFIRMATION TIERS (do not read "30 confirmed corrections" as one flat
+# label — the audit split them by evidence strength):
+#   - 6 GT-confirmed (20%): the ground-truth transcription carries the
+#     corrected spelling at that verse. Strongest tier: externally
+#     verified. هشام (p48), عمرو (p49), كعب (p50), and 3 more عمرو at
+#     p36/p53/p65 where the GT writes the construct state عمر.
+#   - 4 review-only prose (13%): the correction sits in the manuscript's
+#     prose commentary, which the verse-only GT cannot check. Verified
+#     only by human review — the same process that produced the two
+#     reverted errors below.
+#   - 20 out-of-GT-scope (67%): pages beyond the GT's 620 verses (which
+#     end at page 67). Review-only, and a mistake in this tier has no
+#     automatic way to surface, unlike the two found.
+# The two reverted errors (عقبة, حام) both came from the review-only
+# tiers, which is why the error rate there is stated as "unknown but
+# demonstrably non-zero" rather than estimated. logs/vault_reverts.jsonl
+# holds both with their evidence; the GT gate (Task 4) now catches this
+# failure mode automatically where GT coverage exists.
 INVARIANT = "47e1985598c50c3f976f"
 TEST_MODULES = [
     "tests.test_gt_alignment",

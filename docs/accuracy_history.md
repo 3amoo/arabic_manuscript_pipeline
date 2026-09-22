@@ -271,8 +271,45 @@ it answers whether the original small gold sample's numbers still hold on
 a richer sample - which is exactly the question Group B's go/no-go gate
 needed a bigger gold set to answer properly.
 
-## Future work (recorded, not scoped)
+## 2026-09-22 — Vault corrections: confirmation tiers (do not read as one flat label)
 
+The Phase 1 vault corrector applied 30 token-level name corrections to
+`data/output/<doc>/vault_corrected_text/`. Summarising these as "30
+human-confirmed corrections" hides the actual confidence structure, and
+the audit that followed (GT_CONTRADICTION_FIX_PLAN) found two of the
+original 34 were wrong. The evidence tiers:
+
+- **6 GT-confirmed (20%).** The ground-truth verse transcription carries
+  the corrected spelling at that verse — externally verified, the
+  strongest tier: هشام (p48), عمرو (p49), كعب (p50), and three more
+  عمرو corrections (p36/p53/p65) where the GT writes the construct state
+  (عمر, the و being the rhyme letter dropped in annexation).
+- **4 review-only prose (13%).** The correction sits in the manuscript's
+  prose commentary, which the verse-only GT cannot check. Human review
+  alone — the same process that produced the two reverted errors below.
+- **20 out-of-GT-scope (67%).** Pages beyond the GT's 620 verses, which
+  end at page 67. Review-only, and a mistake here has no automatic way
+  to surface: nothing cross-checks these pages at all.
+
+**The two reverted errors came from the review-only tiers.** عقبة→عتبة
+(p44/p76) and حام→سام (p16/p110) were both accepted by the review and
+both wrong. The first was caught by the GT (verse 301 spells عُقْبَة);
+the second by the corpus's own internal repetition (the verse appears
+twice with حام, and the next verse names حام again). Both share one
+cause: the reviewer matched a skeleton to the nearest vault entry
+without checking which *person* the passage describes — for عقبة the
+vault has no skeleton at all, so the corrector was matching a gap in the
+vault, not evidence.
+
+**Honest reading:** the review-only tiers' error rate is unknown but
+demonstrably non-zero — two errors in 24 review-only corrections (~8%),
+and both were found only because one happened to fall inside GT
+coverage. The GT gate (Task 4) now catches this failure automatically
+where GT coverage exists; the 20 out-of-scope corrections remain
+unchecked by any automated signal. `logs/vault_reverts.jsonl` records
+both reverts with their evidence.
+
+## Future work (recorded, not scoped)
 If diacritic-completeness ever becomes a priority again: does
 PaddleOCR expose a **per-character or per-mark confidence** rather than
 only a per-line aggregate? A per-mark score would in principle allow
