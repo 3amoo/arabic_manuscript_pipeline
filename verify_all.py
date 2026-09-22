@@ -68,6 +68,9 @@ TEST_MODULES = [
     "tests.test_page_layout_detector",
     "tests.test_regressions",
     "tests.test_noise_crop_gate",
+    # Phase 1 (NEXT_DEVELOPMENT_PLAN_2): the vault corrector reuses
+    # Group E's guards, so its tests belong in the same net.
+    "tests.test_vault_vote_correct_names",
     "tests.test_vote_correct_names",
     "tests.test_genealogy_crossref",
     "tests.test_restore_tashkeel",
