@@ -90,59 +90,6 @@ FOOTNOTE_SEARCH_ZONE = 0.45
 
 # A row is considered "empty" (a candidate gap) if its text-pixel count
 # is below this fraction of the widest row in the content region.
-
-SEPARATOR_BOTTOM_EXCLUSION_RATIO = 0.06
-
-
-BOUNDARY_MATCH_TOLERANCE_RATIO = 0.03
-
-
-# --- Footnote scoring signals (added for multi-signal detection) ---
-
-# A separator line must span at least this fraction of the content width
-# to count as a real horizontal rule (short strokes/letters don't count).
-SEPARATOR_LINE_MIN_WIDTH_RATIO = 0.20
-
-
-# Kernel used to isolate long horizontal lines specifically (much wider,
-# and only 1px tall) — this is deliberately different from the
-# line-merging dilation kernel above.
-SEPARATOR_KERNEL_HEIGHT = 1
-
-
-# A second, contour-based separator detector catches slightly skewed/broken
-# rules that strict morphology can miss. These constraints reject ordinary
-# letter strokes while still allowing short footnote rules.
-SEPARATOR_CONTOUR_MIN_WIDTH_RATIO = 0.12
-
-SEPARATOR_CONTOUR_MIN_ASPECT_RATIO = 8.0
-
-SEPARATOR_CONTOUR_MAX_HEIGHT_RATIO = 0.015
-
-
-# If the median component height below the candidate boundary is smaller
-# than this fraction of the median height in the page body, we treat that
-# as "smaller text below" (a footnote signal).
-SMALLER_TEXT_RATIO = 0.90
-
-
-# Minimum combined score (out of 3) required to trust the footnote
-# boundary and actually cut the page there.
-FOOTNOTE_SCORE_THRESHOLD = 2
-
-
-# Require enough text components on both sides before trusting the
-# "smaller text below" signal. One tiny artifact should not count as a footnote.
-MIN_TEXT_COMPONENTS_PER_SIDE = 2
-
-
-# For local text-size comparison, use nearby components rather than every
-# component on the page. This avoids headings and distant footnotes skewing
-# the size estimate.
-TEXT_SIZE_SAMPLE_COUNT = 25
-
-TEXT_SIZE_PERCENTILE = 85
-
 GAP_ROW_THRESHOLD = 0.02
 
 # A gap must be at least this many consecutive empty rows to count as a
@@ -159,12 +106,102 @@ MIN_COLUMN_GAP_WIDTH_PX = 20
 # renders at a different DPI the pixel thresholds must scale by dpi/200 or
 # this module sees the page at the wrong scale (letters stop merging into
 # line blobs, normal inter-line gaps start counting as separators, a
+# footnote sliver gets saved on its own). main.py calls set_dpi_scale()
 # once per run with the render DPI; the default scale 1.0 keeps every
 # constant at its tuned 200-DPI value, so behaviour is byte-identical for
 # any caller that never touches the setter (regression guard).
 #
+# The _BASE_* values below are the 200-DPI tunings - the only place the
 # numbers live. The public names above are rebound by the setter.
 # ---------------------------------------------------------------------------
+_BASE_MIN_PROSE_REGION_HEIGHT_PX = 30
+_BASE_DILATE_KERNEL_WIDTH = 25
+_BASE_DILATE_KERNEL_HEIGHT = 5
+_BASE_MIN_GAP_HEIGHT_PX = 12
+_BASE_SEPARATOR_KERNEL_HEIGHT = 1
+
+_DPI_SCALE = 1.0
+
+
+def set_dpi_scale(dpi: float) -> None:
+    """
+    Rescale this module's absolute-pixel thresholds for a render DPI other
+    than the 200 they were tuned at (spec 010). Ratio constants are
+    untouched. At dpi=200 the scale is exactly 1.0 and every constant is
+    restored to its tuned value.
+    """
+    global _DPI_SCALE
+    global MIN_PROSE_REGION_HEIGHT_PX
+    global DILATE_KERNEL_WIDTH, DILATE_KERNEL_HEIGHT
+    global MIN_GAP_HEIGHT_PX, SEPARATOR_KERNEL_HEIGHT
+
+    _DPI_SCALE = max(0.1, float(dpi) / 200.0)
+
+    def s(base):
+        return max(1, int(round(base * _DPI_SCALE)))
+
+    MIN_PROSE_REGION_HEIGHT_PX = s(_BASE_MIN_PROSE_REGION_HEIGHT_PX)
+    DILATE_KERNEL_WIDTH = s(_BASE_DILATE_KERNEL_WIDTH)
+    DILATE_KERNEL_HEIGHT = s(_BASE_DILATE_KERNEL_HEIGHT)
+    MIN_GAP_HEIGHT_PX = s(_BASE_MIN_GAP_HEIGHT_PX)
+    SEPARATOR_KERNEL_HEIGHT = s(_BASE_SEPARATOR_KERNEL_HEIGHT)
+
+
+def reset_dpi_scale() -> None:
+    """Restore the 200-DPI tuned values (scale 1.0)."""
+    set_dpi_scale(200)
+
+# --- Footnote scoring signals (added for multi-signal detection) ---
+
+# A separator line must span at least this fraction of the content width
+# to count as a real horizontal rule (short strokes/letters don't count).
+SEPARATOR_LINE_MIN_WIDTH_RATIO = 0.20
+
+# Kernel used to isolate long horizontal lines specifically (much wider,
+# and only 1px tall) — this is deliberately different from the
+# line-merging dilation kernel above.
+SEPARATOR_KERNEL_HEIGHT = 1
+
+# Ignore very long horizontal lines extremely close to the bottom of the
+# content region; these are usually the page frame/border, not footnote rules.
+SEPARATOR_BOTTOM_EXCLUSION_RATIO = 0.06
+
+# A second, contour-based separator detector catches slightly skewed/broken
+# rules that strict morphology can miss. These constraints reject ordinary
+# letter strokes while still allowing short footnote rules.
+SEPARATOR_CONTOUR_MIN_WIDTH_RATIO = 0.12
+SEPARATOR_CONTOUR_MIN_ASPECT_RATIO = 8.0
+SEPARATOR_CONTOUR_MAX_HEIGHT_RATIO = 0.015
+
+# If the median component height below the candidate boundary is smaller
+# than this fraction of the median height in the page body, we treat that
+# as "smaller text below" (a footnote signal).
+SMALLER_TEXT_RATIO = 0.90
+
+# Minimum combined score (out of 3) required to trust the footnote
+# boundary and actually cut the page there.
+FOOTNOTE_SCORE_THRESHOLD = 2
+
+# Gap and separator signals are only allowed to reinforce each other when
+# they point to roughly the same vertical boundary. This avoids a normal
+# inter-line gap accidentally combining with an unrelated horizontal rule.
+BOUNDARY_MATCH_TOLERANCE_RATIO = 0.03
+
+# Require enough text components on both sides before trusting the
+# "smaller text below" signal. One tiny artifact should not count as a footnote.
+MIN_TEXT_COMPONENTS_PER_SIDE = 2
+
+# For local text-size comparison, use nearby components rather than every
+# component on the page. This avoids headings and distant footnotes skewing
+# the size estimate.
+TEXT_SIZE_SAMPLE_COUNT = 25
+TEXT_SIZE_PERCENTILE = 85
+
+
+# ---------------------------------------------------------------------------
+# STEP 1: rendering and setup
+# ---------------------------------------------------------------------------
+
 def open_pdf(pdf_path):
     """Open the PDF file and return the fitz Document object."""
     if not pdf_path.is_file():

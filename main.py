@@ -1193,10 +1193,15 @@ def process_document(file_path: Path, config: dict, ocr_engine: OCREngine,
 
     # NOTE ON DPI: page_layout_detector.py / segment_text_rows.py's pixel
     # thresholds (line height, gutter width, dilation kernel size, etc.)
-    # were tuned at 200 DPI. If config['pdf']['dpi'] is set higher (e.g.
-    # 300) for OCR sharpness, layout/line detection will see everything
-    # at the wrong scale and may misfire. Keeping detection_dpi at 200
-    # here is deliberate - raise it only after re-tuning those constants.
+    # were tuned at 200 DPI. As of spec 010 those thresholds are DPI-aware:
+    # set_dpi_scale() below rescales every absolute-pixel constant by
+    # dpi/200 (the ratio constants are DPI-independent), so a higher render
+    # DPI sharpens OCR WITHOUT corrupting layout detection. At dpi=200 the
+    # scale is exactly 1.0 and every constant equals its tuned value.
+    detection_dpi = config.get('pdf', {}).get('dpi', 200)
+    layout.set_dpi_scale(detection_dpi)
+    rowseg.set_dpi_scale(detection_dpi)
+
     # الخطوة 1: تحميل المستند
     logger.info("Step 1: Loading document")
     pages = input_handler.load_file(
@@ -1303,6 +1308,12 @@ def process_document(file_path: Path, config: dict, ocr_engine: OCREngine,
     }
     
     logger.info(f"Processing completed in {processing_time:.2f} seconds")
+
+    # Restore the 200-DPI tuned layout constants so a later document in the
+    # same process (or a caller that re-enters with a different DPI) starts
+    # from the baseline rather than inheriting this document's scale.
+    layout.reset_dpi_scale()
+    rowseg.reset_dpi_scale()
 
     return result
 

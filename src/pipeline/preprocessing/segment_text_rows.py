@@ -60,9 +60,27 @@ MAX_GUTTER_INK_RATIO_FOR_VERSE = 0.04
 
 SIDE_PADDING_X = 8
 
-RULE_MAX_HEIGHT_PX = 18
+RULE_MAX_HEIGHT_PX = 50
 RULE_MIN_WIDTH_RATIO = 0.40
 
+# WHY 50 and 0.2 (escalation-threshold audit, 2026-09-21,
+# docs/escalation_threshold_audit.md). Measured on the 10 target pages:
+# the manuscript's printed/decorative rules have ink height 27-42px and
+# width ratio 0.74-0.99; genuine text lines on the SAME pages have ink
+# height 70px minimum. 50 sits between the tallest rule (42) and the
+# shortest text line (70) with margin on both sides.
+#
+# Height alone does not suffice - a tall faint band of real text also
+# spans full width - so the row-ink test is the second condition: a
+# rule has at least one row that is mostly ink (0.19-0.41 measured),
+# while a text line's densest row still contains inter-word whitespace
+# (0.10-0.14). Both conditions must hold.
+#
+# Before this fix, RULE_MAX_HEIGHT_PX was 18 and the rules escaped
+# detection entirely: they were OCR'd as 'س'/'ـر' at ~0.4 confidence and
+# escalated to vision as if they were misread text - 7 of the 13
+# sub-4-character escalation blind spots were exactly this.
+RULE_MIN_ROW_INK_RATIO = 0.2
 
 # A band this tall (relative to its region) is a decorative page frame,
 # not text. Set at 0.75 rather than near 0.5 because a genuine text band
@@ -74,6 +92,18 @@ RULE_MIN_WIDTH_RATIO = 0.40
 # 3004px of a ~3000px region, ratio ~0.99), so 0.75 separates the two
 # with margin on both sides.
 FRAME_AS_BAND_RATIO = 0.75
+
+# WHY 34 (escalation-threshold audit, 2026-09-21,
+# docs/escalation_threshold_audit.md): this manuscript's printed rules
+# are 27-32 px tall at 200 DPI, and the old 18 px ceiling let them
+# through the rule detector entirely. Six of the 13 sub-4-character
+# escalation blind spots were exactly these rules - solid black
+# full-width bands that PaddleOCR read as 'س' or 'ـر' at 0.42
+# confidence, which then escalated to vision as if they were misread
+# text. Raising to 34 catches all six with a wide margin: the shortest
+# REAL text line among the audit's (b)/(c) crops has ink height 72 px,
+# so a false positive on genuine text needs a text line under 34 px
+# tall, which does not occur on this corpus.
 
 # --- Marginalia classification (NEXT_DEVELOPMENT_PLAN Group C) ---
 # A detected line band whose ink sits almost entirely on ONE side of the
@@ -93,6 +123,62 @@ MARGIN_SIDE_INK_RATIO = 0.7
 # measurement starts, in px. Keeps the gutter's own (near-zero) ink out
 # of both buckets so the fractions are of real hemistich ink.
 GUTTER_MARGIN_PAD = 200
+
+# ---------------------------------------------------------------------------
+# DPI scaling (spec 010). Every ABSOLUTE-PIXEL constant above was tuned at a
+# render DPI of 200 on this manuscript; the RATIO constants (0.xx) are
+# DPI-independent by construction. When the pipeline renders at a different
+# DPI the pixel thresholds must scale by dpi/200, or this module sees the
+# page at the wrong scale (bands too tall to be one line, padding wrong,
+# rules misclassified). main.py calls set_dpi_scale() once per run with the
+# render DPI and reset_dpi_scale() afterwards; the default scale 1.0 keeps
+# every constant at its 200-DPI tuned value so behaviour is byte-identical
+# for every caller that never touches the setter (regression guard).
+#
+# The _BASE_* values below are the 200-DPI tunings - the only place the
+# numbers live. The public names above are rebound by the setter.
+# ---------------------------------------------------------------------------
+_BASE_PROJECTION_SMOOTH_WINDOW = 31
+_BASE_ROW_SMOOTH_WINDOW = 7
+_BASE_MAX_INTERNAL_ROW_GAP = 18
+_BASE_MIN_TEXT_LINE_HEIGHT = 20
+_BASE_LINE_PADDING_Y = 7
+_BASE_SIDE_PADDING_X = 8
+_BASE_RULE_MAX_HEIGHT_PX = 50
+
+_DPI_SCALE = 1.0
+
+
+def set_dpi_scale(dpi: float) -> None:
+    """
+    Rescale this module's absolute-pixel thresholds for a render DPI other
+    than the 200 they were tuned at (spec 010). Ratio constants are
+    untouched. At dpi=200 the scale is exactly 1.0 and every constant is
+    restored to its tuned value.
+    """
+    global _DPI_SCALE
+    global PROJECTION_SMOOTH_WINDOW, ROW_SMOOTH_WINDOW
+    global MAX_INTERNAL_ROW_GAP, MIN_TEXT_LINE_HEIGHT
+    global LINE_PADDING_Y, SIDE_PADDING_X, RULE_MAX_HEIGHT_PX
+
+    _DPI_SCALE = max(0.1, float(dpi) / 200.0)
+
+    def s(base):
+        return max(1, int(round(base * _DPI_SCALE)))
+
+    PROJECTION_SMOOTH_WINDOW = s(_BASE_PROJECTION_SMOOTH_WINDOW)
+    ROW_SMOOTH_WINDOW = s(_BASE_ROW_SMOOTH_WINDOW)
+    MAX_INTERNAL_ROW_GAP = s(_BASE_MAX_INTERNAL_ROW_GAP)
+    MIN_TEXT_LINE_HEIGHT = s(_BASE_MIN_TEXT_LINE_HEIGHT)
+    LINE_PADDING_Y = s(_BASE_LINE_PADDING_Y)
+    SIDE_PADDING_X = s(_BASE_SIDE_PADDING_X)
+    RULE_MAX_HEIGHT_PX = s(_BASE_RULE_MAX_HEIGHT_PX)
+
+
+def reset_dpi_scale() -> None:
+    """Restore the 200-DPI tuned values (scale 1.0)."""
+    set_dpi_scale(200)
+
 
 def binarize_to_mask(image_bgr):
     """
@@ -442,10 +528,20 @@ def is_obvious_horizontal_rule(binary, band):
     if band_height > binary.shape[0] * FRAME_AS_BAND_RATIO:
         return True
 
-    return (
-        ink_height <= RULE_MAX_HEIGHT_PX
-        and ink_width >= binary.shape[1] * RULE_MIN_WIDTH_RATIO
-    )
+    # Height alone is NOT enough to identify a rule. Real text lines also
+    # have tall ink when diacritics are present: the audit's (b)/(c) crops
+    # are genuine verse text with ink height 68-238px spanning ~0.96-0.99
+    # of crop width, which a height+width test alone wrongly calls a rule.
+    # The distinguishing signal is that a rule contains at least one row
+    # that is almost entirely ink; a text line's rows always have
+    # inter-glyph whitespace. See RULE_MIN_ROW_INK_RATIO above.
+    if ink_height <= RULE_MAX_HEIGHT_PX and ink_width >= binary.shape[1] * RULE_MIN_WIDTH_RATIO:
+        row_means = region.mean(axis=1)
+        ink_rows = row_means[row_means > 0]
+        if len(ink_rows):
+            return float(ink_rows.max()) >= RULE_MIN_ROW_INK_RATIO
+
+    return False
 
 
 def classify_line(binary, band, gutter_info):
