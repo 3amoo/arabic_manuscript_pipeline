@@ -3,9 +3,9 @@ Unit tests for the §4.13 vision-fallback acceptance policy in main.py.
 
 Tests the pure decision core `_evaluate_escalation()` (no I/O, no engine
 dependency) against every gate, plus the integration wrapper
-`_maybe_escalate_line()` with a fake vision engine to prove the
-mutations (`result["text"]`, `result["likely_noise"]`) and the
-escalations-list behaviour line up with the pure core.
+`_maybe_escalate_line()` with a fake vision engine to prove the returned
+result (new `text` / `likely_noise`, never a mutation of the input) and
+the escalations-list behaviour line up with the pure core.
 
 Run with:  myenv/bin/python -m unittest tests.test_escalation_policy -v
 """
@@ -122,7 +122,13 @@ class EvaluationGates(unittest.TestCase):
 
 
 class IntegrationWrapper(unittest.TestCase):
-    """_maybe_escalate_line - engine flow + result mutations/records."""
+    """_maybe_escalate_line - engine flow + returned result/records.
+
+    The wrapper returns (updated_result, escalations) and must NOT mutate
+    the caller's dict, so each test below asserts on the RETURNED result
+    and separately that the original is untouched (a caller that ignores
+    the return value would otherwise silently keep the pre-vision OCR
+    text forever, with no error to hint at it)."""
 
     def _make_fake_engine(self, reply):
         class FakeEngine:
@@ -134,22 +140,38 @@ class IntegrationWrapper(unittest.TestCase):
         return {"text": text, "confidence": confidence, "likely_noise": likely_noise}
 
     def test_vision_failed_no_record_no_mutation(self):
+        # source == "paddle" means every backend was dead/quota-exhausted
+        # and transcribe() returned the OCR text unchanged. Before the
+        # Group 1 visibility fix this produced NO audit entry at all - the
+        # line's unverified guess landed in the manuscript with no trace
+        # that escalation had been tried. Now it records an explicit
+        # no_backend_responded entry and flags the result unresolved, so
+        # save_page can mark the line and the review queue can find it.
         result = self._make_result(likely_noise=False)
-        escalations = _maybe_escalate_line(
+        updated, escalations = _maybe_escalate_line(
             self._make_fake_engine({"text": "ملفاتهوانار", "source": "paddle",
                                     "repeated_verbatim": False}),
             result, "img", "full_width",
         )
+        self.assertEqual(updated["text"], "ملفاتهوانار")
         self.assertEqual(result["text"], "ملفاتهوانار")
-        self.assertEqual(escalations, [])
+        self.assertTrue(updated["unresolved"],
+                        "a backend-less escalation must be flagged unresolved")
+        self.assertNotIn("unresolved", result,
+                         "the caller's dict stays a faithful OCR record")
+        self.assertEqual(len(escalations), 1)
+        self.assertEqual(escalations[0]["source"], "no_backend_responded")
+        self.assertFalse(escalations[0]["accepted"])
+        self.assertIsNone(escalations[0]["escalated_text"])
 
     def test_cross_crop_repeat_rejected_keeps_ocr(self):
         result = self._make_result()
-        escalations = _maybe_escalate_line(
+        updated, escalations = _maybe_escalate_line(
             self._make_fake_engine({"text": "وَمَا لِلْعَيْنِ مِنْ دَمْعٍ",
                                     "source": "openrouter", "repeated_verbatim": True}),
             result, "img", "verse_left",
         )
+        self.assertEqual(updated["text"], "ملفاتهوانار")
         self.assertEqual(result["text"], "ملفاتهوانار")
         self.assertEqual(len(escalations), 1)
         self.assertFalse(escalations[0]["accepted"])
@@ -157,11 +179,12 @@ class IntegrationWrapper(unittest.TestCase):
 
     def test_echo_rejected_keeps_ocr(self):
         result = self._make_result()
-        escalations = _maybe_escalate_line(
+        updated, escalations = _maybe_escalate_line(
             self._make_fake_engine({"text": "ملفاتهوانار", "source": "sovereign",
                                     "repeated_verbatim": False}),
             result, "img", "full_width",
         )
+        self.assertEqual(updated["text"], "ملفاتهوانار")
         self.assertEqual(result["text"], "ملفاتهوانار")
         self.assertEqual(len(escalations), 1)
         self.assertFalse(escalations[0]["accepted"])
@@ -169,15 +192,30 @@ class IntegrationWrapper(unittest.TestCase):
 
     def test_accepted_replaces_text_and_recomputes_noise_flag(self):
         result = self._make_result(confidence=0.62, likely_noise=False)
-        escalations = _maybe_escalate_line(
+        updated, escalations = _maybe_escalate_line(
             self._make_fake_engine({"text": "وَمَا", "source": "groq",
                                     "repeated_verbatim": False}),
             result, "img", "verse_right",
         )
-        self.assertEqual(result["text"], "وَمَا")
+        self.assertEqual(updated["text"], "وَمَا")
+        self.assertEqual(result["text"], "ملفاتهوانار")
         self.assertEqual(len(escalations), 1)
         self.assertTrue(escalations[0]["accepted"])
         self.assertEqual(escalations[0]["reason"], "accepted")
+
+    def test_returned_result_carries_over_unrelated_keys(self):
+        # A shallow copy, not a freshly-built dict: every key the OCR
+        # layer put on the result (bbox, confidence, source...) must
+        # survive into the returned object.
+        result = self._make_result(confidence=0.62)
+        result["segment_id"] = 7
+        updated, _ = _maybe_escalate_line(
+            self._make_fake_engine({"text": "وَمَا", "source": "groq",
+                                    "repeated_verbatim": False}),
+            result, "img", "verse_right",
+        )
+        self.assertEqual(updated["segment_id"], 7)
+        self.assertEqual(updated["confidence"], 0.62)
 
 
 class InkDensityGate(unittest.TestCase):
@@ -280,7 +318,7 @@ class InkDensityGateIntegration(unittest.TestCase):
         blank = cv2.imread(str(FIXTURE_DIR / "blank_white.png"))
         calls = [0]
         result = self._make_result()
-        escalations = _maybe_escalate_line(
+        updated, escalations = _maybe_escalate_line(
             self._make_engine(calls), result, blank, "verse_right",
         )
         self.assertEqual(calls[0], 0, "transcribe() must not be called for blank crop")
@@ -292,7 +330,7 @@ class InkDensityGateIntegration(unittest.TestCase):
     def test_none_skips_vision(self):
         calls = [0]
         result = self._make_result()
-        escalations = _maybe_escalate_line(
+        updated, escalations = _maybe_escalate_line(
             self._make_engine(calls), result, None, "full_width",
         )
         self.assertEqual(calls[0], 0, "transcribe() must not be called for None crop")
@@ -311,7 +349,7 @@ class InkDensityGateIntegration(unittest.TestCase):
     def test_audit_schema_after_page_merge(self):
         blank = cv2.imread(str(FIXTURE_DIR / "blank_white.png"))
         result = self._make_result(confidence=0.80)
-        escalations = _maybe_escalate_line(
+        updated, escalations = _maybe_escalate_line(
             self._make_engine(), result, blank, "verse_right",
         )
         self.assertEqual(len(escalations), 1)

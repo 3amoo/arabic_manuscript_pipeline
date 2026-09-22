@@ -11,29 +11,24 @@ Per-page routing:
 
 IMPORTANT: page_layout_detector.py and segment_text_rows.py are imported
 as whole modules (`layout.` / `rowseg.`), not as individual function
-names. Both modules define their own `binarize()`, and the two are NOT
-interchangeable: layout.binarize() returns a 0/255 image (ordinary OpenCV
-style), while rowseg.binarize() returns a 0/1 array that rowseg's own
+names. Their binarizers are named binarize_to_255() and binarize_to_mask()
+respectively because their return contracts are NOT interchangeable:
+layout.binarize_to_255() returns a 0/255 image (ordinary OpenCV style),
+while rowseg.binarize_to_mask() returns a 0/1 array that rowseg's own
 functions (remove_edge_frame_lines in particular) depend on internally.
-Importing both by bare name would silently shadow one with the other and
-corrupt detection with no obvious error - always call layout.binarize()
-for layout-module functions and rowseg.binarize() for rowseg-module
-functions, never mix them.
+Keep calling them by their distinct names - a bare `binarize()` shared
+between the two would let one silently shadow the other and corrupt
+detection with no obvious error.
 
 PAGE RANGE (--start/--end): same idea as review_manuscript.py's
 --start/--end - try a handful of pages before committing to a full,
-multi-hour run on the whole manuscript. Filtering happens AFTER
-input_handler.load_file() renders every page (that part is unchanged),
-so this saves OCR/vision-API time and lets you inspect output/ for a
-small range, but it does not skip the PDF-rendering cost for pages
-outside the range. Good enough for "does this new range look right"
-checks; not a performance optimization for huge ad-hoc ranges on a slow
-CPU - render the input PDF down to just that range first if rendering
-itself is the bottleneck.
+multi-hour run on the whole manuscript. InputHandler now bounds the
+RENDER itself to the requested range (not just the OCR work done on
+each rendered page), so a small range on a big PDF no longer allocates
+pixel buffers for every page outside it.
 """
 
 import argparse
-import os
 import sys
 import yaml
 import time
@@ -126,6 +121,95 @@ def _evaluate_ink_density(ink_ratio: Optional[float],
         return {"blocked": True, "ink_ratio": ink_ratio,
                 "reason": "low_ink_ratio"}
     return {"blocked": False, "ink_ratio": ink_ratio, "reason": None}
+
+
+def _record_fallback_event(page: int, region: str, escalated: bool,
+                           paddle_confidence: Optional[float],
+                           reason: Optional[str],
+                           source: Optional[str] = None) -> None:
+    """
+    Telemetry for the escalation decision (NEXT_DEVELOPMENT_PLAN Group D).
+
+    Appends ONE structured line per evaluated line to
+    logs/fallback_events.jsonl, recording whether the line escalated and
+    why. The point is the escalation RATE - how many lines actually need
+    vision fallback at all - which was previously unmeasured and is what
+    decides whether the provider-redundancy work is urgent or marginal.
+
+    Deliberately never raises and never blocks a run: telemetry is not
+    load-bearing for correctness. A unwritable logs/ dir (read-only
+    checkout, container with no volume) is logged once and then ignored
+    rather than retried per line.
+    """
+    import json as _json
+    from datetime import datetime, timezone
+
+    # Module-level override exists purely so tests can point the writer
+    # somewhere isolated instead of chdir-ing the whole process (which
+    # would leak into other tests running in the same session).
+    path = getattr(_record_fallback_event, "_path", None) or (
+        Path("logs") / "fallback_events.jsonl")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(_json.dumps({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "page": page,
+                "region": region,
+                "escalated": bool(escalated),
+                "paddle_confidence": paddle_confidence,
+                "reason": reason,
+                "source": source,
+            }, ensure_ascii=False) + "\n")
+    except OSError as e:
+        if not getattr(_record_fallback_event, "_warned", False):
+            logger.warning(f"fallback telemetry unavailable ({e}) - "
+                           f"continuing without logs/fallback_events.jsonl")
+            _record_fallback_event._warned = True
+
+
+def _escalation_source(escalations: list) -> Optional[str]:
+    """Which backend actually served an escalated line, for telemetry.
+
+    Group 1: the three escalation call sites never passed `source`, so
+    every escalated event in the corpus telemetry had source=None and
+    the report had to *infer* 'no_backend_responded' downstream from
+    absent data. Derive it here from the escalation entries
+    _maybe_escalate_line already produced, which record exactly what
+    happened for every outcome:
+
+      ink_density_gate      blocked before any API call (no real ink)
+      no_backend_responded  every backend dead/quota-exhausted
+      <backend name>        a backend answered (accepted OR rejected -
+                            a rejected reading still means the backend
+                            *responded*, and reporting it as a failure
+                            would corrupt the provider-hit-rate view)
+
+    The entries are appended in order the events happened, so the last
+    one is the outcome that determined the line's final text.
+    """
+    if not escalations:
+        return None
+    return escalations[-1].get("source")
+
+
+def _unresolved_line_marker(result: dict, leading_newline: bool = False) -> str:
+    """Inline marker for an unverified line (Group 1 Step 2).
+
+    A line that escalated but got no vision answer is still written to
+    the page - it is the best evidence available - but it must not look
+    like a verified line. The marker goes on its OWN line immediately
+    before the affected text, not inside it, so normalize_text() in
+    evaluate_cer.py (which drops leading-'#' lines) skips it and the CER
+    benchmark stays honest to the OCR itself.
+
+    `leading_newline` handles the left hemistich, whose marker must
+    appear after the ' ... ' join rather than before the whole verse.
+    """
+    if not result.get("unresolved"):
+        return ""
+    from src.pipeline.output.output_generator import UNRESOLVED_MARKER
+    return ("\n" if leading_newline else "") + UNRESOLVED_MARKER + "\n"
 
 
 def _should_escalate_line(vision_engine, paddle_text: str,
@@ -231,28 +315,35 @@ def _evaluate_escalation(paddle_text: str, paddle_confidence, vision_text: str,
     return vision_text, entry
 
 
-def _maybe_escalate_line(vision_engine, result: dict, crop_img, region: str) -> list:
+def _maybe_escalate_line(vision_engine, result: dict, crop_img, region: str,
+                         page_num: int = 0) -> tuple:
     """
     Run one vision-fallback attempt on a line whose OCR confidence is low
     (_should_escalate_line() already answered True) and apply the §4.13
     acceptance policy (delegated to the pure _evaluate_escalation()).
 
-    The vision text REPLACES the OCR text in `result` only when
-    _evaluate_escalation() accepts it - i.e. it is a real vision success
-    that is NEITHER a cross-crop repeated_verbatim guess (a phrase a
-    backend already returned verbatim for some OTHER crop, persisted by
-    repeated_verbatim_tracker.py; documented: the Imru' al-Qais opening
-    'وَمَا لِلْعَيْنِ مِنْ دَمْعٍ...' returned on pages 20-27 for crops
-    PaddleOCR read as noise or unrelated garbled Arabic) NOR a verbatim
-    echo of the OCR text. Feeding either back into the manuscript would be
-    exactly the "fluent-sounding-but-wrong" edit §4.13 forbids, so the OCR
-    evidence is kept (and the noise filter then handles whatever the OCR
-    text was).
+    The vision text REPLACES the OCR text in the returned result only
+    when _evaluate_escalation() accepts it - i.e. it is a real vision
+    success that is NEITHER a cross-crop repeated_verbatim guess (a
+    phrase a backend already returned verbatim for some OTHER crop,
+    persisted by repeated_verbatim_tracker.py; documented: the Imru'
+    al-Qais opening 'وَمَا لِلْعَيْنِ مِنْ دَمْعٍ...' returned on pages
+    20-27 for crops PaddleOCR read as noise or unrelated garbled Arabic)
+    NOR a verbatim echo of the OCR text. Feeding either back into the
+    manuscript would be exactly the "fluent-sounding-but-wrong" edit
+    §4.13 forbids, so the OCR evidence is kept (and the noise filter then
+    handles whatever the OCR text was).
+
+    Returns (updated_result, escalations) and does NOT mutate the caller's
+    `result` dict - the caller's copy stays a faithful record of what
+    PaddleOCR produced, and the caller decides which copy to keep. Callers
+    must use the returned dict, not rely on side effects.
 
     Every real vision success is returned as an escalation record
     (including rejected repeated/echoed ones - the reviewer must SEE
     them), matching what output_generator.save_escalations() expects.
     """
+    result = dict(result)  # never mutate the caller's OCR result in place
     escalations = []
     paddle_text = result["text"]
     paddle_confidence = result["confidence"]
@@ -279,9 +370,20 @@ def _maybe_escalate_line(vision_engine, result: dict, crop_img, region: str) -> 
                 "reason": gate["reason"],
                 "ink_ratio": gate["ink_ratio"],
             })
-            return escalations
+            return result, escalations
 
     escalated = vision_engine.transcribe(crop_img, paddle_text)
+
+    # A vision-fallback attempt that produced NO usable backend answer
+    # (source == "paddle" means transcribe() fell back to the OCR text
+    # because every backend was dead/quota-exhausted/uninitialized). The
+    # text is kept - it is the best evidence available - but it was never
+    # verified by anything, so flag it. The call site propagates this to
+    # save_page(), which writes UNRESOLVED_MARKER at that exact line so
+    # the blind spot is greppable instead of invisible. This is the
+    # failure class Group 1 exists for: without the flag, an unverified
+    # guess is indistinguishable from a verified line in the output.
+    unresolved = escalated.get("source") == "paddle"
 
     final_text, entry = _evaluate_escalation(
         paddle_text,
@@ -292,8 +394,26 @@ def _maybe_escalate_line(vision_engine, result: dict, crop_img, region: str) -> 
         region,
     )
 
+    if unresolved:
+        result["unresolved"] = True
+        # The escalation attempt left no audit entry at all
+        # (_evaluate_escalation returns None for source == "paddle"), so
+        # record one explicitly here - without it, review/escalations.jsonl
+        # would show no trace that this line tried and failed, which is
+        # how 134 blind spots accumulated in the current corpus.
+        escalations.append({
+            "region": region,
+            "paddle_text": paddle_text,
+            "paddle_confidence": paddle_confidence,
+            "escalated_text": None,
+            "source": "no_backend_responded",
+            "repeated_verbatim": False,
+            "accepted": False,
+            "reason": "no_backend_responded",
+        })
+
     if final_text != paddle_text:
-        result["text"] = final_text
+        result = {**result, "text": final_text}
         # The text changed - the old flag is stale, recompute it on the
         # final text (same method OCREngine.extract() uses) instead of
         # letting the old PaddleOCR flag discard a correct text that came
@@ -306,7 +426,7 @@ def _maybe_escalate_line(vision_engine, result: dict, crop_img, region: str) -> 
     if entry is not None:
         escalations.append(entry)
 
-    return escalations
+    return result, escalations
 
 
 def _aggregate_page_confidence(segment_results: list) -> float:
@@ -359,7 +479,7 @@ def _detect_line_bands(crop, crop_bin, surya_detector):
 
     `crop` is the ORIGINAL color region (Surya needs a normal RGB image,
     not our Otsu binary mask). `crop_bin` is that same region already
-    binarized via rowseg.binarize() - reused here for the classical
+    binarized via rowseg.binarize_to_mask() - reused here for the classical
     fallback path and for split_oversized_lines(), which is applied
     either way as a safety net (a cheap no-op when bands are already
     well-formed, and a correction if two real lines ever got merged
@@ -376,7 +496,8 @@ def _detect_line_bands(crop, crop_bin, surya_detector):
     return rowseg.split_oversized_lines(crop_bin, lines)
 
 
-def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_detector=None):
+def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None,
+                          surya_detector=None, page_num=None):
     """
     Mirrors segment_text_rows.py's row classification. Returns
     (joined_text, structure) where structure is 'verse' if at least one
@@ -424,7 +545,7 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_det
     that (gutter detection, verse/full-width classification, the
     right/left hemistich split) is completely unchanged either way.
     """
-    crop_bin = rowseg.binarize(poetry_crop)
+    crop_bin = rowseg.binarize_to_mask(poetry_crop)
     crop_bin, _ = rowseg.remove_edge_frame_lines(crop_bin)
     gutter = rowseg.detect_gutter(crop_bin)
 
@@ -449,6 +570,25 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_det
             else "full_width"
         )
 
+        # Marginalia check (NEXT_DEVELOPMENT_PLAN Group C): a band whose
+        # ink sits almost entirely on one side of the gutter is a
+        # scribal margin note, not a verse. Detecting it here keeps it
+        # out of the verse stream entirely - it is OCR'd and preserved
+        # on its own channel instead of being interleaved into the
+        # poetry text (measured on page 47: four one-sided bands).
+        if kind == "full_width" and gutter["detected"]:
+            if rowseg.classify_band(crop_bin, band, gutter) == "margin":
+                m_img = rowseg.crop_nonempty_x(
+                    poetry_crop, crop_bin, y1, y2, 0, poetry_crop.shape[1],
+                )
+                if m_img.size > 0 and m_img.shape[0] > 0 and m_img.shape[1] > 0:
+                    m_idx = len(all_crops)
+                    all_crops.append(m_img)
+                else:
+                    m_idx = None
+                band_plan.append({"kind": "margin", "idx": m_idx})
+                continue
+
         if kind == "verse_row":
             right_img = rowseg.crop_nonempty_x(
                 poetry_crop, crop_bin, y1, y2,
@@ -457,10 +597,19 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_det
             left_img = rowseg.crop_nonempty_x(
                 poetry_crop, crop_bin, y1, y2, 0, gutter["gutter_left"],
             )
-            right_idx = len(all_crops)
-            all_crops.append(right_img)
-            left_idx = len(all_crops)
-            all_crops.append(left_img)
+
+            if right_img.size > 0 and right_img.shape[0] > 0 and right_img.shape[1] > 0:
+                right_idx = len(all_crops)
+                all_crops.append(right_img)
+            else:
+                right_idx = None
+
+            if left_img.size > 0 and left_img.shape[0] > 0 and left_img.shape[1] > 0:
+                left_idx = len(all_crops)
+                all_crops.append(left_img)
+            else:
+                left_idx = None
+
             band_plan.append({
                 "kind": "verse_row",
                 "right_img": right_img, "left_img": left_img,
@@ -470,8 +619,11 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_det
             full_img = rowseg.crop_nonempty_x(
                 poetry_crop, crop_bin, y1, y2, 0, poetry_crop.shape[1],
             )
-            full_idx = len(all_crops)
-            all_crops.append(full_img)
+            if full_img.size > 0 and full_img.shape[0] > 0 and full_img.shape[1] > 0:
+                full_idx = len(all_crops)
+                all_crops.append(full_img)
+            else:
+                full_idx = None
             band_plan.append({"kind": "full_width", "img": full_img, "idx": full_idx})
 
     # ---- ONE batched OCR call for every line crop collected across the
@@ -484,6 +636,7 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_det
     # from this point on (vision escalation, noise filtering, text
     # assembly) is unchanged from the original single-call-per-line logic.
     rendered_lines = []
+    margin_lines = []
     escalations = []
     has_verse_row = False
     # Confidence of the crops whose text actually made it into the final
@@ -496,23 +649,78 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_det
         if plan["kind"] == "rule":
             continue
 
+        if plan["kind"] == "margin":
+            # OCR'd in the same batch as everything else, but routed to
+            # the margin channel instead of the verse stream - a margin
+            # note is real text worth preserving (it may be a scribal
+            # correction that matters for the nasab), just not part of
+            # the verse it sat next to.
+            m_result = (
+                batch_results[plan["idx"]]
+                if plan["idx"] is not None
+                else {"text": "", "confidence": None, "likely_noise": False}
+            )
+            if m_result["text"] and not m_result.get("likely_noise"):
+                margin_lines.append(m_result["text"])
+            continue
+
         if plan["kind"] == "verse_row":
             has_verse_row = True
 
             right_img = plan["right_img"]
             left_img = plan["left_img"]
-            right_result = batch_results[plan["right_idx"]]
-            left_result = batch_results[plan["left_idx"]]
+            # A crop with zero width/height (gutter at the image edge)
+            # was never appended to all_crops, so its index is None and
+            # no OCR result exists for it - synthesize an empty one
+            # instead of indexing the batch out of range.
+            right_result = (
+                batch_results[plan["right_idx"]]
+                if plan["right_idx"] is not None
+                else {"text": "", "confidence": None, "likely_noise": False}
+            )
+            left_result = (
+                batch_results[plan["left_idx"]]
+                if plan["left_idx"] is not None
+                else {"text": "", "confidence": None, "likely_noise": False}
+            )
 
             if _should_escalate_line(vision_engine, right_result["text"], right_result["confidence"]):
-                escalations.extend(
-                    _maybe_escalate_line(vision_engine, right_result, right_img, "verse_right")
+                # _maybe_escalate_line returns an UPDATED result rather
+                # than mutating this one in place - rebind here so the
+                # noise filter and rendering below see the vision text.
+                # It may also set result["unresolved"] when no vision
+                # backend answered (the text is then the unverified
+                # PaddleOCR guess), which _unresolved_render marks inline.
+                right_result, right_escalations = _maybe_escalate_line(
+                    vision_engine, right_result, right_img, "verse_right",
+                    page_num=page_num,
                 )
+                escalations.extend(right_escalations)
+                _record_fallback_event(
+                    page_num, "verse_right", True,
+                    right_result["confidence"], "escalated",
+                    _escalation_source(right_escalations),
+                )
+            else:
+                _record_fallback_event(
+                    page_num, "verse_right", False,
+                    right_result["confidence"], "below_threshold")
 
             if _should_escalate_line(vision_engine, left_result["text"], left_result["confidence"]):
-                escalations.extend(
-                    _maybe_escalate_line(vision_engine, left_result, left_img, "verse_left")
+                left_result, left_escalations = _maybe_escalate_line(
+                    vision_engine, left_result, left_img, "verse_left",
+                    page_num=page_num,
                 )
+                escalations.extend(left_escalations)
+                _record_fallback_event(
+                    page_num, "verse_left", True,
+                    left_result["confidence"], "escalated",
+                    _escalation_source(left_escalations),
+                )
+            else:
+                _record_fallback_event(
+                    page_num, "verse_left", False,
+                    left_result["confidence"], "below_threshold")
 
             # Same noise filter applied in extract_prose_region() - this
             # was missing here before, meaning watermarks or leaked margin
@@ -529,7 +737,9 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_det
 
             if right_result["text"] or left_result["text"]:
                 rendered_lines.append(
-                    f"{right_result['text']} ... {left_result['text']}"
+                    _unresolved_line_marker(right_result)
+                    + f"{right_result['text']} ... {left_result['text']}"
+                    + _unresolved_line_marker(left_result, leading_newline=True)
                 )
                 if right_result["text"]:
                     kept_results.append(right_result)
@@ -537,24 +747,44 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None, surya_det
                     kept_results.append(left_result)
         else:
             full_img = plan["img"]
-            line_result = batch_results[plan["idx"]]
+            line_result = (
+                batch_results[plan["idx"]]
+                if plan["idx"] is not None
+                else {"text": "", "confidence": None, "likely_noise": False}
+            )
 
             if _should_escalate_line(vision_engine, line_result["text"], line_result["confidence"]):
-                escalations.extend(
-                    _maybe_escalate_line(vision_engine, line_result, full_img, "full_width")
+                line_result, line_escalations = _maybe_escalate_line(
+                    vision_engine, line_result, full_img, "full_width",
+                    page_num=page_num,
                 )
+                escalations.extend(line_escalations)
+                _record_fallback_event(
+                    page_num, "full_width", True,
+                    line_result["confidence"], "escalated",
+                    _escalation_source(line_escalations),
+                )
+            else:
+                _record_fallback_event(
+                    page_num, "full_width", False,
+                    line_result["confidence"], "below_threshold")
 
             if line_result["text"] and not line_result.get("likely_noise"):
-                rendered_lines.append(line_result["text"])
+                rendered_lines.append(
+                    _unresolved_line_marker(line_result)
+                    + line_result["text"]
+                )
                 kept_results.append(line_result)
 
     structure = "verse" if has_verse_row else "prose_only"
     return (
         "\n".join(rendered_lines), structure, escalations,
         _aggregate_page_confidence(kept_results),
+        "\n".join(margin_lines),
     )
 
-def extract_prose_region(prose_crop, ocr_engine, surya_detector=None):
+def extract_prose_region(prose_crop, ocr_engine, surya_detector=None,
+                         page_gutter=None, prose_offset_x=0):
     """
     Mirrors extract_poetry_region()'s line-band detection, but for the
     prose/commentary region - no gutter, no hemistich split. Same
@@ -581,7 +811,7 @@ def extract_prose_region(prose_crop, ocr_engine, surya_detector=None):
     `surya_detector`: see extract_poetry_region()'s docstring - same
     optional learned-line-detector swap-in, same fallback behavior.
     """
-    prose_bin = rowseg.binarize(prose_crop)
+    prose_bin = rowseg.binarize_to_mask(prose_crop)
     prose_bin, _ = rowseg.remove_edge_frame_lines(prose_bin)
 
     # كانت split_oversized_lines() غايبة هنا قبل كده مع إنها موجودة في
@@ -591,12 +821,44 @@ def extract_prose_region(prose_crop, ocr_engine, surya_detector=None):
     # عن مصدر الكشف (Surya أو الكلاسيكي).
     lines = _detect_line_bands(prose_crop, prose_bin, surya_detector)
 
+    # The commentary region carries its own gutter when the gloss is a
+    # two-sided layout; a margin note inside it is one-sided the same way
+    # it is in the poetry body, so the same classifier applies. The prose
+    # crop is narrow enough that its OWN gutter detection often fails
+    # (measured on page 47: detected=False on the crop), so the caller
+    # passes the PAGE-level gutter, which describes the same physical
+    # seam - shifted into prose-crop coordinates below. When neither is
+    # available the classifier returns "main" for every band and the
+    # region is emitted exactly as before.
+    prose_gutter = rowseg.detect_gutter(prose_bin)
+    if not prose_gutter.get("detected") and page_gutter is not None:
+        shift = -prose_offset_x
+        prose_gutter = {
+            "detected": True,
+            "gutter_left": int(page_gutter["gutter_left"]) + shift,
+            "gutter_right": int(page_gutter["gutter_right"]) + shift,
+            "split_x": int(page_gutter["split_x"]) + shift,
+        }
+
     # ---- PASS 1: crop every retained line (no OCR yet).
     crops = []
+    margin_idx = set()  # positions in `crops` that are margin notes
     for band in lines:
         y1, y2 = band
 
         if rowseg.is_obvious_horizontal_rule(prose_bin, band):
+            continue
+
+        # Marginalia inside the commentary region (NEXT_DEVELOPMENT_PLAN
+        # Group C): measured on page 47, all four of this manuscript's
+        # one-sided bands sit in the commentary region, not the poetry
+        # body - so classifying only the poetry path would miss them.
+        if rowseg.classify_band(prose_bin, band, prose_gutter) == "margin":
+            full_img = rowseg.crop_nonempty_x(
+                prose_crop, prose_bin, y1, y2, 0, prose_crop.shape[1],
+            )
+            margin_idx.add(len(crops))
+            crops.append(full_img)
             continue
 
         full_img = rowseg.crop_nonempty_x(
@@ -610,25 +872,29 @@ def extract_prose_region(prose_crop, ocr_engine, surya_detector=None):
     results = ocr_engine.extract_segments_batch(crops)
 
     # ---- PASS 2: assemble the text, same filtering logic as before.
-    rendered_lines = [
-        result["text"]
-        for result in results
-        if result["text"] and not result.get("likely_noise")
-    ]
+    # Margin notes are OCR'd in the same batch but routed to their own
+    # channel (the plan's Group C step 3: preserve, don't discard, and
+    # don't interleave into the commentary stream either).
+    rendered_lines = []
+    margin_lines = []
+    kept_results = []
+    for i, result in enumerate(results):
+        if not result["text"] or result.get("likely_noise"):
+            continue
+        if i in margin_idx:
+            margin_lines.append(result["text"])
+            continue
+        rendered_lines.append(result["text"])
+        kept_results.append(result)
 
-    # Region confidence = character-weighted mean of the confidences of
-    # the lines that survived the noise filter (same definition as
-    # extract_poetry_region).
-    kept_results = [
-        result
-        for result in results
-        if result["text"] and not result.get("likely_noise")
-    ]
-
-    return "\n".join(rendered_lines), _aggregate_page_confidence(kept_results)
+    return (
+        "\n".join(rendered_lines),
+        _aggregate_page_confidence(kept_results),
+        "\n".join(margin_lines),
+    )
 
 def process_page_image(image, ocr_engine, vision_engine=None, surya_detector=None,
-                       reprocess_cfg=None):
+                       reprocess_cfg=None, page_num=None):
     """
     Decide per page whether a poetry/prose boundary exists (same detector
     as page_layout_detector.py - unchanged; Surya only replaces LINE
@@ -658,7 +924,8 @@ def process_page_image(image, ocr_engine, vision_engine=None, surya_detector=Non
     """
     reprocess_cfg = reprocess_cfg or {}
 
-    result = _run_page_once(image, ocr_engine, vision_engine, surya_detector)
+    result = _run_page_once(image, ocr_engine, vision_engine,
+                            surya_detector, page_num=page_num)
     confidence = result["confidence_percent"]
 
     retry_enabled = bool(reprocess_cfg.get("enabled", True))
@@ -689,7 +956,8 @@ def process_page_image(image, ocr_engine, vision_engine=None, surya_detector=Non
 
     set_binarize_params(block_size=retry_block, c=retry_c)
     try:
-        retry = _run_page_once(image, ocr_engine, vision_engine, surya_detector)
+        retry = _run_page_once(image, ocr_engine, vision_engine,
+                               surya_detector, page_num=page_num)
     finally:
         reset_binarize_params()
 
@@ -712,7 +980,8 @@ def process_page_image(image, ocr_engine, vision_engine=None, surya_detector=Non
     return result
 
 
-def _run_page_once(image, ocr_engine, vision_engine=None, surya_detector=None):
+def _run_page_once(image, ocr_engine, vision_engine=None, surya_detector=None,
+                   page_num=None):
     """
     One full extraction pass over a page with the CURRENT binarization
     settings (which main.py's reprocess loop can change between passes).
@@ -723,11 +992,25 @@ def _run_page_once(image, ocr_engine, vision_engine=None, surya_detector=None):
     Returns a dict with 'text' / 'prose_text' / 'structure' /
     'escalations' / 'confidence_percent' (the latter per
     _aggregate_page_confidence, weighted across poetry and prose).
+
+    `page_num` is threaded through only for the Group D fallback
+    telemetry (_record_fallback_event) - it plays no part in the
+    extraction itself.
     """
-    binary = layout.binarize(image)
+    binary = layout.binarize_to_255(image)
     dilated = layout.dilate_text(binary)
     boxes = layout.remove_border_components(
-        layout.find_components(dilated), image.shape[1], image.shape[0]
+        layout.find_components(dilated), image.shape[1], image.shape[0],
+        binary=dilated,
+    )
+    boxes = layout.remove_page_footer_components(boxes, image.shape[1], image.shape[0])
+
+    # Page-level gutter, computed once here so both the poetry and the
+    # prose region use the SAME physical seam. The prose crop's own
+    # gutter detection often fails on a narrow crop (page 47), but the
+    # seam it describes is a property of the page, not the crop.
+    page_gutter = rowseg.detect_gutter(
+        rowseg.remove_edge_frame_lines(rowseg.binarize_to_mask(image))[0]
     )
 
     if not boxes:
@@ -742,12 +1025,19 @@ def _run_page_once(image, ocr_engine, vision_engine=None, surya_detector=None):
         # branch). Skip OCR entirely and flag the page for manual review
         # instead of guessing.
         return {
-            "text": "", "prose_text": None, "structure": "blank_or_unclear",
+            "text": "", "prose_text": None, "margin_text": "",
+            "structure": "blank_or_unclear",
             "escalations": [], "confidence_percent": 0.0,
+            "content_bbox": None,
+            "footnotes_detected": False,
+            "footnote_score": 0,
+            "columns_detected": 1,
+            "status": "needs_review",
         }
 
     content_bbox = layout.compute_content_bbox(boxes)
     boundary_info = layout.find_footnote_boundary(binary, content_bbox, boxes)
+    columns_detected = layout.detect_columns(binary, content_bbox)
 
     x1, y1, x2, y2 = content_bbox
 
@@ -765,15 +1055,33 @@ def _run_page_once(image, ocr_engine, vision_engine=None, surya_detector=None):
         prose_bbox = None
 
     poetry_crop = image[poetry_bbox[1]:poetry_bbox[3], poetry_bbox[0]:poetry_bbox[2]]
-    poetry_text, structure, escalations, poetry_conf = extract_poetry_region(
-        poetry_crop, ocr_engine, vision_engine, surya_detector
+    poetry_text, structure, escalations, poetry_conf, margin_text = (
+        extract_poetry_region(
+            poetry_crop, ocr_engine, vision_engine, surya_detector,
+            page_num=page_num,
+        )
     )
 
     prose_text = None
     prose_conf = 0.0
+    prose_margin = ""
     if prose_bbox is not None:
         prose_crop = image[prose_bbox[1]:prose_bbox[3], prose_bbox[0]:prose_bbox[2]]
-        prose_text, prose_conf = extract_prose_region(prose_crop, ocr_engine, surya_detector)
+        prose_text, prose_conf, prose_margin = extract_prose_region(
+            prose_crop, ocr_engine, surya_detector,
+            # The page gutter is detected on the whole page; shifting it
+            # into prose-crop coordinates lets the margin classifier work
+            # on a crop whose own gutter detection fails (page 47).
+            page_gutter=page_gutter,
+            prose_offset_x=prose_bbox[0],
+        )
+
+    # Margin notes found in EITHER region land on the same channel: the
+    # poetry body and the commentary band are both places a scribe wrote
+    # in the margin, and a consumer reading the margin channel wants all
+    # of a page's marginalia together, not split by which region it was
+    # found in.
+    margin_text = margin_text or prose_margin
 
     # Combine poetry/prose confidences weighted by their retained text
     # length, so a page whose margin text dominates the character count
@@ -793,9 +1101,15 @@ def _run_page_once(image, ocr_engine, vision_engine=None, surya_detector=None):
     return {
         "text": poetry_text,
         "prose_text": prose_text,
+        "margin_text": margin_text,
         "structure": structure,
         "escalations": escalations,
         "confidence_percent": confidence,
+        "content_bbox": content_bbox,
+        "footnotes_detected": boundary_info["detected"],
+        "footnote_score": boundary_info["score"],
+        "columns_detected": columns_detected,
+        "status": "needs_review" if boundary_info["score"] < 2 else "ok",
     }
 
 
@@ -865,11 +1179,11 @@ def process_document(file_path: Path, config: dict, ocr_engine: OCREngine,
     crash midway doesn't lose already-processed pages.
 
     start_page/end_page (both inclusive, either or both may be None):
-    restrict OCR to a page range. Filtering happens AFTER
-    input_handler.load_file() has rendered every page - this saves the
-    OCR/vision-API cost for pages outside the range, but not the PDF
-    rendering cost, so it isn't a way to speed up rendering itself on a
-    huge document."""
+    restrict the run to a page range. InputHandler bounds the PDF render
+    to this range, so pages outside it are neither rendered nor OCRed;
+    the residual filter below is a defensive backstop for the image
+    loaders, which cannot bound at render time the way the PDF one can.
+    """
     logger = logging.getLogger(__name__)
     start_time = time.time()
     
@@ -883,13 +1197,18 @@ def process_document(file_path: Path, config: dict, ocr_engine: OCREngine,
     # 300) for OCR sharpness, layout/line detection will see everything
     # at the wrong scale and may misfire. Keeping detection_dpi at 200
     # here is deliberate - raise it only after re-tuning those constants.
-    detection_dpi = config.get('pdf', {}).get('dpi', 200)
-
     # الخطوة 1: تحميل المستند
     logger.info("Step 1: Loading document")
-    pages = input_handler.load_file(file_path, dpi=detection_dpi)
+    pages = input_handler.load_file(
+        file_path, dpi=detection_dpi,
+        start_page=start_page, end_page=end_page,
+    )
 
     if start_page is not None or end_page is not None:
+        # The render itself is already bounded in InputHandler now, so
+        # this filter is a defensive backstop (image loaders can't bound
+        # at render time the way the PDF one can). It also keeps the
+        # "page(s) selected" log line the caller is used to.
         total_before = len(pages)
         pages = [
             p for p in pages
@@ -911,41 +1230,11 @@ def process_document(file_path: Path, config: dict, ocr_engine: OCREngine,
     logger.info(f"Step 2: Processing {len(pages)} pages (auto poetry/prose routing)")
     document_name = file_path.stem
     page_count = 0
-    direct_text_page_count = 0
     preprocessing_config = config.get('preprocessing', {})
 
     for page_data in pages:
         page_num = page_data['page_num']
         logger.info(f"  Processing page {page_num}/{len(pages)}")
-
-        # DIRECT TEXT-LAYER SHORTCUT: input_handler.py already checked
-        # (per page, not per file - see pdf_text_extractor.py) whether
-        # this page has a usable embedded PDF text layer. If so, skip
-        # preprocess_page() / process_page_image() entirely for this
-        # page - no deskew/CLAHE/denoise, no layout detection, no
-        # PaddleOCR, no vision-fallback escalation, none of it is needed
-        # or wanted when the page's own text is already correct. This is
-        # the single biggest per-page time/GPU saving available: a mixed
-        # PDF (e.g. a digitally-typeset preface in front of a scanned
-        # manuscript body) gets the cheap path for every page that
-        # qualifies, without any manual page-range configuration, the
-        # same "no manual configuration needed" spirit as the existing
-        # poetry/prose routing below.
-        direct_text = page_data.get('direct_text')
-        if direct_text:
-            logger.info(f"    page {page_num}: usable PDF text layer found - skipping OCR")
-            page_result = {
-                'page_num': page_num,
-                'text': direct_text,
-                'prose_text': None,
-                'structure': 'direct_text',
-                'ocr_method': 'direct_extraction',
-                'source_file': page_data['source_file']
-            }
-            output_generator.save_page(document_name, page_result)
-            page_count += 1
-            direct_text_page_count += 1
-            continue
 
         image = page_data['image']
 
@@ -958,11 +1247,19 @@ def process_document(file_path: Path, config: dict, ocr_engine: OCREngine,
         page_ocr = process_page_image(
             image, ocr_engine, vision_engine, surya_detector,
             reprocess_cfg=config.get('ocr', {}).get('page_confidence_reprocess', {}),
+            page_num=page_num,
         )
         logger.info(f"    structure detected: {page_ocr['structure']}")
         logger.info(
             f"    page confidence: {page_ocr['confidence_percent']:.1f}% "
             f"(binarization attempt {page_ocr['binarization_attempt']})"
+        )
+        logger.info(
+            f"    layout: content_bbox={page_ocr['content_bbox']} "
+            f"footnotes_detected={page_ocr['footnotes_detected']} "
+            f"footnote_score={page_ocr['footnote_score']}/3 "
+            f"columns_detected={page_ocr['columns_detected']} "
+            f"status={page_ocr['status']}"
         )
         
         page_result = {
@@ -997,12 +1294,6 @@ def process_document(file_path: Path, config: dict, ocr_engine: OCREngine,
     
     processing_time = time.time() - start_time
 
-    if direct_text_page_count:
-        logger.info(
-            f"  {direct_text_page_count}/{page_count} page(s) used the direct "
-            f"text-layer shortcut (no OCR/GPU time spent on them)."
-        )
-
     result = {
         'document_name': document_name,
         'source_file': file_path.name,
@@ -1012,6 +1303,7 @@ def process_document(file_path: Path, config: dict, ocr_engine: OCREngine,
     }
     
     logger.info(f"Processing completed in {processing_time:.2f} seconds")
+
     return result
 
 def main():
@@ -1046,11 +1338,6 @@ def main():
     
     input_handler = InputHandler(
         config.get('input', {}).get('default_directory', 'data/input'),
-        enable_direct_text_extraction=(
-            config.get('input', {})
-            .get('direct_text_extraction', {})
-            .get('enabled', True)
-        ),
     )
     files = input_handler.find_all_files()
     

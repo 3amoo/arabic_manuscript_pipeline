@@ -89,10 +89,30 @@ class SuryaLineDetector:
 
         try:
             from surya.detection import DetectionPredictor
-            self._predictor = DetectionPredictor()
+            # CRITICAL (spec 009): construct a LOCAL, process-owned
+            # predictor with an EXPLICIT fp32 dtype, NOT the default
+            # DetectionPredictor(). The default is client-backed and
+            # spawns a detached surya detection server subprocess whose
+            # model loads at settings.MODEL_DTYPE - which is fp16 on any
+            # CUDA box. On this GPU + torch 2.13 build, that EfficientViT
+            # model produces an ALL-NaN heatmap under fp16 (verified
+            # directly: fp16 -> nan=60000/max=nan, fp32 -> nan=0/max=0.957,
+            # identical input). The NaN silently survives into
+            # heatmap.py's uint8 cast (becomes 0), so the server happily
+            # returns "0 text lines found" on every page with a 200 OK -
+            # the worst failure mode: no error, just empty results.
+            # local() + dtype=float32 keeps the model in THIS process
+            # (no subprocess to manage) and is the exact configuration
+            # measured working above. fp32 costs ~2x the VRAM of fp16
+            # but this model is small (EfficientViT, 276 weight tensors)
+            # and the forward pass is ~0.24s/page at 200 DPI on this GPU.
+            import torch
+            self._predictor = DetectionPredictor.local(
+                dtype=torch.float32,
+            )
             logger.info(
-                f"Surya line detector loaded "
-                f"(TORCH_DEVICE={os.environ.get('TORCH_DEVICE', 'auto')})."
+                f"Surya line detector loaded (local fp32, "
+                f"TORCH_DEVICE={os.environ.get('TORCH_DEVICE', 'auto')})."
             )
         except Exception as e:
             self._unavailable_reason = str(e)

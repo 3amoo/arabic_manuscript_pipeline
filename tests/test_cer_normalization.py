@@ -72,3 +72,42 @@ class GtActionability(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestRecoveredPageScoring(unittest.TestCase):
+    """spec 008 T010 / FR-006: a page whose alignment is 'unmatched'
+    but carries a recovered best-effort window must be SCORED (so the
+    CER is honest) and FLAGGED (so it is never mistaken for clean)."""
+
+    def test_recovered_unmatched_is_scored(self):
+        from src.pipeline.evaluation.evaluate_cer import score_aligned_page
+        import tempfile
+        from pathlib import Path
+        gt = [f"بيت_{i} يمين ... شطر_{i}" for i in range(1, 21)]
+        f = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8")
+        f.write("# Page 9\nبيت_3 يمين ... شطر_3\n"); f.close()
+        try:
+            entry = {"gt_start": 3, "gt_end": 3, "status": "unmatched",
+                     "recovered": True}
+            r = score_aligned_page(gt, Path(f.name), entry)
+            self.assertIsNotNone(r, "recovered page must be scored")
+            self.assertGreaterEqual(r["cer"], 0.0)
+        finally:
+            Path(f.name).unlink(missing_ok=True)
+
+    def test_windowless_unmatched_still_excluded(self):
+        from src.pipeline.evaluation.evaluate_cer import score_aligned_page
+        entry = {"gt_start": None, "gt_end": None, "status": "unmatched",
+                 "recovered": False}
+        self.assertIsNone(score_aligned_page(["x"], None, entry))
+
+    def test_prose_and_out_of_scope_excluded(self):
+        from src.pipeline.evaluation.evaluate_cer import score_aligned_page
+        for st in ("prose_only", "out_of_gt_scope", "empty_page"):
+            entry = {"gt_start": 1, "gt_end": 1, "status": st,
+                     "recovered": False}
+            self.assertIsNone(score_aligned_page(["x"], None, entry))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,68 @@
+{
+  "version": "1.0",
+  "dpi": 200,
+  "source_pdf": "data/input/عمود النسب نسخة 2.pdf",
+  "pages": [
+    {
+      "page": 4,
+      "binary": "page_004_binary.png",
+      "boxes": "page_004_boxes.json",
+      "content_bbox": "page_004_cb.json",
+      "expected": "page_004_expected.json",
+      "score": 2,
+      "detected": true,
+      "num_boxes": 365
+    },
+    {
+      "page": 8,
+      "binary": "page_008_binary.png",
+      "boxes": "page_008_boxes.json",
+      "content_bbox": "page_008_cb.json",
+      "expected": "page_008_expected.json",
+      "score": 1,
+      "detected": false,
+      "num_boxes": 486
+    },
+    {
+      "page": 27,
+      "binary": "page_027_binary.png",
+      "boxes": "page_027_boxes.json",
+      "content_bbox": "page_027_cb.json",
+      "expected": "page_027_expected.json",
+      "score": 1,
+      "detected": false,
+      "num_boxes": 452
+    },
+    {
+      "page": 28,
+      "binary": "page_028_binary.png",
+      "boxes": "page_028_boxes.json",
+      "content_bbox": "page_028_cb.json",
+      "expected": "page_028_expected.json",
+      "score": 3,
+      "detected": true,
+      "num_boxes": 446
+    },
+    {
+      "page": 95,
+      "binary": "page_095_binary.png",
+      "boxes": "page_095_boxes.json",
+      "content_bbox": "page_095_cb.json",
+      "expected": "page_095_expected.json",
+      "score": 2,
+      "detected": true,
+      "num_boxes": 513
+    },
+    {
+      "page": 111,
+      "binary": "page_111_binary.png",
+      "boxes": "page_111_boxes.json",
+      "content_bbox": "page_111_cb.json",
+      "expected": "page_111_expected.json",
+      "score": 1,
+      "detected": false,
+      "num_boxes": 172
+    }
+  ],
+  "note": "Goldens are snapshots of the CURRENT detector behavior at 200 DPI. Regenerate with tests/fixtures/layout/generate_fixtures.py and review the JSON diff deliberately."
+}

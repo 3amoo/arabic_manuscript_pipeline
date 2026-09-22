@@ -13,32 +13,21 @@ input:
   - ".png"
   - ".tiff"
   - ".tif"
-  # Per-page check (pdf_text_extractor.py): if a PDF page already has a
-  # usable embedded text layer (digitally-typeset page, or a prior OCR
-  # pass with a correct ToUnicode map), main.py skips preprocessing +
-  # layout detection + OCR entirely for that page and uses the embedded
-  # text as-is - faster and no risk of new OCR errors on a page that
-  # never needed OCR. Purely a per-page decision: a PDF that mixes a
-  # typeset preface with a scanned manuscript body gets the fast path
-  # only for the pages that actually qualify, no manual page-range
-  # config needed. The usability check itself is deliberately
-  # conservative (see pdf_text_extractor.py) - a broken/missing
-  # ToUnicode CMap (common in scanned Arabic manuscript PDFs) is
-  # rejected and that page falls back to the normal OCR path exactly as
-  # before. Set enabled: false to force every PDF page through OCR
-  # regardless (e.g. if you've confirmed a manuscript's embedded text
-  # layer is garbage that somehow still passes the check).
-  direct_text_extraction:
-    enabled: true
+  # NOTE: the embedded PDF text-layer shortcut (input.direct_text_extraction)
+  # was RETIRED. A broken/missing ToUnicode CMap can produce well-formed but
+  # position-permuted Arabic (e.g. "الله" -> "اهلل" in لمعة النسب.pdf) that
+  # passes any codepoint/ratio check, so trusting the embedded layer over OCR
+  # risks shipping silently corrupt text. Every PDF page now goes through the
+  # render -> preprocess -> layout -> OCR path; final text is always OCR output.
 
 # PDF Processing
 pdf:
-  # NOTE: this DPI is also what page_layout_detector.py / segment_text_rows.py's
-  # pixel-based thresholds (line height, gutter width, dilation kernel
-  # size, etc.) were tuned at. Raising it improves OCR sharpness but
-  # requires re-calibrating those constants too - see main.py's
-  # process_document() docstring. Left at 200 until that re-calibration
-  # pass happens; do not raise this alone.
+  # Render DPI. As of spec 010 the layout-detector pixel thresholds are
+  # DPI-aware (scaled by dpi/200 via set_dpi_scale), so this knob trades
+  # OCR sharpness against runtime/VRAM WITHOUT corrupting layout
+  # detection. 200 is the tuned baseline; 300 was A/B-measured (see
+  # specs/010-dpi-and-diacritics and AGENTS.md §12) - keep whatever the
+  # measurement supported.
   dpi: 200
   page_range:
 
@@ -68,6 +57,12 @@ preprocessing:
 
 ocr:
   use_gpu: true
+  # Recognition model. PaddleOCR 3.7 offers exactly TWO Arabic recognizers:
+  # arabic_PP-OCRv5_mobile_rec (current default; emits diacritics) and
+  # arabic_PP-OCRv3_mobile_rec (emits almost none - 56 vs 7 marks on a
+  # fixed 8-line probe, spec 011 research). Changing this key starts a
+  # DISJOINT OCR cache set automatically (ocr_cache.py keys on model name).
+  text_recognition_model_name: arabic_PP-OCRv5_mobile_rec
   min_confidence: 0.4
   # Only affects OCREngine.extract() (whole-page path), which the actual
   # pipeline in main.py does not call - main.py always goes through
@@ -153,14 +148,31 @@ logging:
 
 vision_fallback:
   enabled: true
+  # ROTATION ORDER reflects the 2026-09-20 live health probe
+  # (docs/backend_health_table.md - every backend was probed with a real
+  # cropped line PLUS a blank-white control image of identical size).
+  # A backend that answers fluent Arabic on pure white is NOT reading the
+  # image; that control is what removed groq AND cohere from this list.
+  #
+  # Only backends that PASSED the control are here. groq/groq_2 (catalog
+  # has zero vision ids - hallucinated on the blank control), cohere
+  # (BOTH its vision models answer confident Arabic on blank white and on
+  # nonexistent image URLs - blind at both API versions), github_models
+  # (service retiring - HTTP 410 retirement_brownout on every endpoint)
+  # and openrouter (free-tier 1360 prompt-token cap is smaller than one
+  # line-crop image; needs an account top-up, not a code change) are
+  # intentionally OUT. Dead backends were removed rather than left "just
+  # in case": each one silently burns a failed attempt + retry delay on
+  # every escalated line before the rotation reaches a live backend.
+  #
+  # REALITY: only gemini_2 passed the control in the probe (gemini key1
+  # was quota-exhausted). Run check_vision_health.py after any key change
+  # to see the current state - this rotation is the config, not a
+  # guarantee that a backend is alive right now.
   rotation_order:
   - gemini
   - gemini_2
-  - groq
-  - groq_2
-  - sovereign
-  - sovereign_2
-  - openrouter
+  - qwen_vl
   confidence_threshold: 0.55
   max_calls: 3000
   # Ink-density gate threshold (FR-003): crops with ink ratio below this
@@ -180,55 +192,117 @@ vision_fallback:
   # vision_escalations.txt appearing on pages 20-27 across separate runs
   # with a fresh dict each time, never flagged).
   repeated_verbatim_db: "data/output/.cache/repeated_verbatim.sqlite3"
+  # A phrase must be escalated this many times (across ALL runs - the
+  # counter above is persistent) before it is flagged as a repeated-
+  # verbatim hallucination. Default 3, not 2: a classical poetry
+  # manuscript legitimately repeats refrains across pages and opens
+  # sections with fixed formulas, so flagging a phrase on its second
+  # sighting rejects real text as often as it catches a hallucination.
+  # The first (min_occurrences - 1) sightings pass through unflagged and
+  # are still counted.
+  repeated_verbatim_min_occurrences: 3
   backends:
     gemini:
+      # VERIFIED LIVE 2026-09-20 (real crop + blank control): returns
+      # correct Arabic with diacritics, ~17s/call. One of two keys was
+      # quota-exhausted during the probe - with both keys here the
+      # rotation still has one working Gemini tier.
       model: gemini-3.6-flash
       api_key_env: GEMINI_API_KEY1
     gemini_2:
       model: gemini-3.6-flash
       api_key_env: GEMINI_API_KEY2
-    groq:
-      model: qwen/qwen3.6-27b
-      api_key_env: GROQ_API_KEY1
-    groq_2:
-      model: qwen/qwen3.6-27b
-      api_key_env: GROQ_API_KEY2
-    openrouter:
-      model: qwen/qwen2.5-vl-72b-instruct
-      api_key_env: OPENROUTER_API_KEY
-    sovereign:
-      model: claude-sonnet-5
-      api_key_env: SOVEREIGN_API_KEY1
-    sovereign_2:
-      model: claude-sonnet-5
-      api_key_env: SOVEREIGN_API_KEY2
     cohere:
-      model: c4ai-aya-vision-32b
+      # FAILED THE BLANK-IMAGE CONTROL (2026-09-20). Cohere exposes two
+      # vision models; both are blind:
+      #  - c4ai-aya-vision-32b: v2 image_url block always 422s
+      #    NO_VALID_RESPONSE_GENERATED; on the v1 endpoint it returns
+      #    fluent Arabic for a NONEXISTENT image URL - it never reads
+      #    the image at all.
+      #  - command-a-vision-07-2025: answers on v2, but returns an
+      #    equally confident Arabic hemistich on pure white.
+      # NOT in rotation_order until one of them passes
+      # check_vision_health.py's blank control. A Cohere id that returns
+      # 200 + fluent Arabic is NOT evidence of vision.
+      model: command-a-vision-07-2025
       api_key_env: COHERE_API_KEY
-    claude:
-      model: claude-sonnet-5
-      api_key_env: ANTHROPIC_API_KEY
     qwen_vl:
       # Local/free vision backend (zero API cost, no quota). Needs
       # Ollama running locally with a Qwen-VL model pulled, e.g.:
       #   ollama pull qwen2.5vl
       #   ollama run qwen2.5vl:7b
-      # No api_key_env - Ollama ignores the key entirely.
+      # No api_key_env - Ollama ignores the key entirely. If Ollama is not
+      # running, the first escalated line fails fast, the slot is marked
+      # dead and the rotation moves on - no hang, no budget burn.
       model: qwen2.5vl:7b
       # Optional override if Ollama listens elsewhere (not localhost):
       # base_url: "http://localhost:11434/v1"
+    # --- BACKENDS BELOW ARE CONFIGURED BUT NOT IN rotation_order ---
+    # Each was probed live on 2026-09-20 and failed; see
+    # docs/backend_health_table.md for the evidence. None of them cost a
+    # failed call during a normal run while they stay out of the rotation.
+    openrouter:
+      # FAILED PROBE: HTTP 402 "Prompt tokens limit exceeded: 1589 > 1360"
+      # on every image, including a 512x29px crop. The free tier's 1360
+      # prompt-token cap is smaller than the image tokens of a single
+      # line crop. This is an ACCOUNT-CREDITS problem (0 credits), not a
+      # code problem - top up the account and put 'openrouter' back in
+      # rotation_order; nothing here needs changing. The model id below
+      # was confirmed present and vision-capable in OpenRouter's catalog.
+      model: qwen/qwen2.5-vl-72b-instruct
+      api_key_env: OPENROUTER_API_KEY
+    sovereign:
+      # FAILED PROBE: HTTP 401 invalid_api_key on listing AND chat, with
+      # both keys. These are the OLD keys revoked by FIX_PLAN Task 01 -
+      # a fresh key from dashboard.sovereigneg.com is required before
+      # this can be re-added. The model id is also UNVERIFIED: SovereignEG
+      # is a third-party proxy, so an Anthropic-style name is not
+      # guaranteed valid there - list the proxy's own catalogue first.
+      model: claude-sonnet-5
+      api_key_env: SOVEREIGN_API_KEY1
+    sovereign_2:
+      model: claude-sonnet-5
+      api_key_env: SOVEREIGN_API_KEY2
 
 text_correction:
   enabled: true
-  rotation_order: [gemini, groq]
+  # Atria is listed LAST deliberately: it is opt-in and its account quota
+  # (requests-per-minute, shared across models) is bursty. Gemini/Groq
+  # remain the workhorses; Atria only gets a page when the earlier
+  # backends in the rotation are dead or quota-exhausted. Move it
+  # earlier once its reliability is measured on a real run.
+  rotation_order: [gemini, groq, atria]
   max_calls: 500
   backends:
     gemini:
       model: gemini-flash-lite-latest
       api_key_env: GEMINI_API_KEY1
     groq:
-      model: llama-3.3-70b-versatile
+      # Verified live against Groq's /models listing (2026-09-20):
+      # llama-3.3-70b-versatile is no longer listed (Groq announced its
+      # 2026-06-17 decommission; confirmed absent now, not just rumoured).
+      # openai/gpt-oss-120b is the current text-only replacement in that
+      # tier. GroqTextBackend's DEFAULT_MODEL tracks this same id.
+      model: openai/gpt-oss-120b
       api_key_env: GROQ_API_KEY1
+    # Atria-Dawn-Preview (api.atria-asi.ai, OpenAI-compatible).
+    # TEXT-ONLY model - the correction stage only ever sends page TEXT
+    # (never images), so this backend is text-only by construction; it
+    # must NOT be used in vision_fallback (that path requires image
+    # input this model rejects with HTTP 400). See spec 005 +
+    # AGENTS.md §4.13.1 / §12.
+    #
+    # CASE-SENSITIVE MODEL ID: the Atria API rejects a wrong-case
+    # variant ("atria-dawn-preview" does NOT work). Keep this string
+    # byte-identical to AtriaTextBackend.DEFAULT_MODEL in
+    # src/pipeline/correction/text_correction_engine.py.
+    #
+    # SHARED RPM QUOTA: a 429 here is transient by nature, so the
+    # backend honors the Retry-After header and retries once before
+    # letting the engine mark it dead for the run (FR-007).
+    atria:
+      model: Atria-Dawn-Preview
+      api_key_env: ATRIA_API_KEY
 
 # REVIEW-only morphological verifier (morphological_verifier.py +
 # flag_suspicious_words.py -> output/<doc>/review/suspicious_words.jsonl).
@@ -239,3 +313,20 @@ text_correction:
 # token_verification:
 #   db_name: "calima-msa-r13"
 #   max_candidates: 5
+
+# spec 009 (MEASURED, NOT ACTIVATED): Surya line detection was fixed
+# (the fp16-all-NaN bug in the default server-backed DetectionPredictor
+# is worked around in surya_line_detector.py with a local fp32 predictor)
+# and A/B-tested across all 45 in-scope pages. RESULT: corpus CER
+# 27.0% -> 26.5% (-0.6pp, within noise; 24 pages improved / 17 got
+# worse / 4 unchanged; good pages regressed, e.g. p55 10.4%->23.3%).
+# Oracle pick-per-page would give 23.9% but needs GT (undeployable).
+# CONCLUSION: line-boundary detection is NOT the bottleneck (matches
+# the spec-008 error budget: 66% char errors vs 13% dropped verses) -
+# so surya stays OFF and the next spec targets char errors + diacritics.
+# Leave commented to keep the classical detector as the default.
+# layout_detection:
+#   line_detector: surya
+#   surya:
+#     device: cuda
+#     confidence_threshold: 0.4

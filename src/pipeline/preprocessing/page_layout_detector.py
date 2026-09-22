@@ -62,6 +62,21 @@ MIN_PROSE_REGION_HEIGHT_PX = 30
 # (a frame line), not text, and is dropped.
 BORDER_TOUCH_RATIO = 0.90
 
+# Case-4 frame detection (see _is_near_full_page_frame): how close to
+# each page edge a near-full-page component's sides must sit to be
+# considered a frame rather than content. Looser than
+# EDGE_TOUCH_MARGIN_RATIO on purpose - case 2 is strict because it has
+# no other signal; case 4 confirms with ink density, so it can afford a
+# wider tolerance and still catch the measured frame (4.1% short of the
+# right and bottom edges on page 44).
+FRAME_MARGIN_RATIO = 0.06
+
+# A frame's bbox is a thin outline, so the fraction of it that is
+# actually ink is small. A merged content blob (poem + footnotes) is
+# close to solid. Measured on the real frame: 0.1035. The threshold
+# leaves a wide band between the two populations.
+FRAME_MAX_INK_FILL_RATIO = 0.25
+
 # Horizontal dilation kernel width, in pixels at 200 DPI. This merges
 # individual letters into line-level blobs. Roughly tuned for Arabic
 # print at this resolution; adjust if lines aren't merging well.
@@ -75,11 +90,12 @@ FOOTNOTE_SEARCH_ZONE = 0.45
 
 # A row is considered "empty" (a candidate gap) if its text-pixel count
 # is below this fraction of the widest row in the content region.
-GAP_ROW_THRESHOLD = 0.02
 
-# A gap must be at least this many consecutive empty rows to count as a
-# real separator (avoids reacting to normal inter-line spacing).
-MIN_GAP_HEIGHT_PX = 12
+SEPARATOR_BOTTOM_EXCLUSION_RATIO = 0.06
+
+
+BOUNDARY_MATCH_TOLERANCE_RATIO = 0.03
+
 
 # --- Footnote scoring signals (added for multi-signal detection) ---
 
@@ -87,51 +103,68 @@ MIN_GAP_HEIGHT_PX = 12
 # to count as a real horizontal rule (short strokes/letters don't count).
 SEPARATOR_LINE_MIN_WIDTH_RATIO = 0.20
 
+
 # Kernel used to isolate long horizontal lines specifically (much wider,
 # and only 1px tall) — this is deliberately different from the
 # line-merging dilation kernel above.
 SEPARATOR_KERNEL_HEIGHT = 1
 
-# Ignore very long horizontal lines extremely close to the bottom of the
-# content region; these are usually the page frame/border, not footnote rules.
-SEPARATOR_BOTTOM_EXCLUSION_RATIO = 0.06
 
 # A second, contour-based separator detector catches slightly skewed/broken
 # rules that strict morphology can miss. These constraints reject ordinary
 # letter strokes while still allowing short footnote rules.
 SEPARATOR_CONTOUR_MIN_WIDTH_RATIO = 0.12
+
 SEPARATOR_CONTOUR_MIN_ASPECT_RATIO = 8.0
+
 SEPARATOR_CONTOUR_MAX_HEIGHT_RATIO = 0.015
+
 
 # If the median component height below the candidate boundary is smaller
 # than this fraction of the median height in the page body, we treat that
 # as "smaller text below" (a footnote signal).
 SMALLER_TEXT_RATIO = 0.90
 
+
 # Minimum combined score (out of 3) required to trust the footnote
 # boundary and actually cut the page there.
 FOOTNOTE_SCORE_THRESHOLD = 2
 
-# Gap and separator signals are only allowed to reinforce each other when
-# they point to roughly the same vertical boundary. This avoids a normal
-# inter-line gap accidentally combining with an unrelated horizontal rule.
-BOUNDARY_MATCH_TOLERANCE_RATIO = 0.03
 
 # Require enough text components on both sides before trusting the
 # "smaller text below" signal. One tiny artifact should not count as a footnote.
 MIN_TEXT_COMPONENTS_PER_SIDE = 2
 
+
 # For local text-size comparison, use nearby components rather than every
 # component on the page. This avoids headings and distant footnotes skewing
 # the size estimate.
 TEXT_SIZE_SAMPLE_COUNT = 25
+
 TEXT_SIZE_PERCENTILE = 85
 
+GAP_ROW_THRESHOLD = 0.02
+
+# A gap must be at least this many consecutive empty rows to count as a
+# real separator (avoids reacting to normal inter-line spacing).
+MIN_GAP_HEIGHT_PX = 12
+
+MIN_COLUMN_GAP_WIDTH_PX = 20
 
 # ---------------------------------------------------------------------------
-# STEP 1: rendering and setup
+# DPI scaling (spec 010). The ABSOLUTE-PIXEL constants above (prose-region
+# min height, the line-merging dilation kernel, the gap height, the
+# separator kernel height) were tuned at a render DPI of 200; every RATIO
+# constant (0.xx) is DPI-independent by construction. When the pipeline
+# renders at a different DPI the pixel thresholds must scale by dpi/200 or
+# this module sees the page at the wrong scale (letters stop merging into
+# line blobs, normal inter-line gaps start counting as separators, a
+# once per run with the render DPI; the default scale 1.0 keeps every
+# constant at its tuned 200-DPI value, so behaviour is byte-identical for
+# any caller that never touches the setter (regression guard).
+#
+# numbers live. The public names above are rebound by the setter.
 # ---------------------------------------------------------------------------
-
 def open_pdf(pdf_path):
     """Open the PDF file and return the fitz Document object."""
     if not pdf_path.is_file():
@@ -174,12 +207,17 @@ def render_page_to_array(doc, page_number, dpi):
 # STEP 2: preprocessing (grayscale + threshold + dilation)
 # ---------------------------------------------------------------------------
 
-def binarize(image_bgr):
+def binarize_to_255(image_bgr):
     """
     Convert to grayscale and threshold so that text becomes white (255,
     foreground) on a black (0) background. Uses adaptive thresholding to
     preserve thin diacritics (tashkeel) which global Otsu tends to
     erode on Arabic manuscript scans (see AGENTS.md §4.2).
+
+    Named binarize_to_255 (not just binarize) because
+    segment_text_rows.py has its own binarize_to_mask() returning a 0/1
+    mask - the two are NOT interchangeable, and the distinct names keep a
+    mix from silently corrupting detection.
     """
     from src.pipeline.preprocessing.preprocessing import adaptive_binarize
 
@@ -299,10 +337,47 @@ def _touches_all_four_edges(box, image_width, image_height,
     )
 
 
-def is_border_component(box, image_width, image_height):
+def _is_near_full_page_frame(box, binary, image_width, image_height):
+    """
+    Case 4: a decorative frame that is near-full-page but does NOT have
+    all four sides within EDGE_TOUCH_MARGIN_RATIO of the page edges, so
+    _touches_all_four_edges() misses it (measured on page 44 of this
+    manuscript: frame at x128..3066, y93..4239 - 4.1% from the left and
+    top but 3.9% and 4.1% short of the right and bottom edges).
+
+    The discriminator is INK FILL, not geometry alone. A frame is a thin
+    outline, so its bbox is mostly empty; a big merged CONTENT blob is
+    dense. That distinction is exactly what keeps this from re-tripping
+    the tightly-line-spaced failure the existing comments guard against:
+    the blob that merged poem + most footnotes into one 94%x91% mass was
+    ~solid ink, and would fail the fill test by a wide margin.
+
+    Returns False when `binary` is None (callers that only have boxes)
+    so the geometric cases still work unchanged.
+    """
+    if binary is None:
+        return False
+    x, y, w, h = box
+    if w < image_width * BORDER_TOUCH_RATIO or h < image_height * BORDER_TOUCH_RATIO:
+        return False
+    if x > image_width * FRAME_MARGIN_RATIO or y > image_height * FRAME_MARGIN_RATIO:
+        return False
+    if (x + w) < image_width * (1 - FRAME_MARGIN_RATIO):
+        return False
+    if (y + h) < image_height * (1 - FRAME_MARGIN_RATIO):
+        return False
+
+    region = binary[y:y + h, x:x + w]
+    if region.size == 0:
+        return False
+    fill = float(region.sum()) / 255.0 / (w * h)
+    return fill <= FRAME_MAX_INK_FILL_RATIO
+
+
+def is_border_component(box, image_width, image_height, binary=None):
     """
     A component is treated as a page border (frame line), not text, in
-    three cases:
+    four cases:
       1. It spans almost the full width while staying thin vertically
          (a horizontal rule), or almost the full height while staying
          thin horizontally (a vertical rule).
@@ -325,6 +400,12 @@ def is_border_component(box, image_width, image_height):
     Requiring all four sides close to the actual page edges is what
     correctly keeps that content blob out of border classification while
     still catching a genuine full-page frame.
+      4. A near-full-page frame whose sides are close to but not within
+         the strict margin of case 2 - identified by its low ink fill
+         rather than edge distances. See _is_near_full_page_frame().
+
+    `binary` (optional) is needed only by case 4, which measures ink
+    density. Without it, only the geometric cases apply.
     """
     x, y, w, h = box
     is_horizontal_rule = (
@@ -340,15 +421,20 @@ def is_border_component(box, image_width, image_height):
         is_horizontal_rule
         or is_vertical_rule
         or is_full_page_frame
+        or _is_near_full_page_frame(box, binary, image_width, image_height)
         or is_edge_border_strip(box, image_width, image_height)
     )
 
 
-def remove_border_components(boxes, image_width, image_height):
-    """Filter out components that look like a page border/frame."""
+def remove_border_components(boxes, image_width, image_height, binary=None):
+    """Filter out components that look like a page border/frame.
+
+    Pass `binary` to enable case-4 frame detection (ink-fill based);
+    without it only the geometric cases apply.
+    """
     return [
         box for box in boxes
-        if not is_border_component(box, image_width, image_height)
+        if not is_border_component(box, image_width, image_height, binary)
     ]
 
 
@@ -725,13 +811,62 @@ def find_footnote_boundary(binary, content_bbox, boxes):
 
 
 # ---------------------------------------------------------------------------
+# STEP 6: column detection (vertical projection) — detection only
+# ---------------------------------------------------------------------------
+
+def vertical_projection(binary_region):
+    """For each column, count foreground (text) pixels. One value per column."""
+    return binary_region.sum(axis=0) / 255
+
+
+def detect_columns(binary, content_bbox):
+    """
+    Look for a vertical gap roughly in the middle of the content region,
+    which would suggest a two-column (two-hemistich) layout. This only
+    records the result (1 or 2); it does not split the columns.
+    """
+    x1, y1, x2, y2 = content_bbox
+    region = binary[y1:y2, x1:x2]
+    projection = vertical_projection(region)
+
+    if len(projection) == 0:
+        return 1
+
+    max_col_density = projection.max()
+    if max_col_density == 0:
+        return 1
+
+    threshold = max_col_density * GAP_ROW_THRESHOLD
+
+    # Search only the middle third of the width — a column gap near the
+    # left/right edge is just normal margin, not a column separator.
+    width = len(projection)
+    middle_start = int(width * 0.33)
+    middle_end = int(width * 0.67)
+
+    gap_width = 0
+    max_gap_width = 0
+    for col in range(middle_start, middle_end):
+        if projection[col] <= threshold:
+            gap_width += 1
+            max_gap_width = max(max_gap_width, gap_width)
+        else:
+            gap_width = 0
+
+    return 2 if max_gap_width >= MIN_COLUMN_GAP_WIDTH_PX else 1
+
+
+# ---------------------------------------------------------------------------
 # End of module.
 #
 # This file used to end with a STEP 6 (vertical-projection column
 # detection), a STEP 7 (save_cropped_image/save_preview_image), and a
 # standalone main() that ran find_footnote_boundary() over a hardcoded
 # page range from a hardcoded PDF path and wrote crops/previews to disk.
-# None of that was ever called by main.py or debug_page_107.py (both only
+# STEP 6 was restored below as a pure detect-only signal (feeds the
+# columns_detected report field; nothing splits on it). STEP 7 and the
+# standalone main() are gone: neither was ever called by main.py or
+# debug_page_107.py (both only
 # import the detection functions above as a module) - it was a leftover,
 # separate CLI tool for eyeballing this detector's output in isolation,
 # and it had drifted out of sync with the real pipeline (a PDF_PATH under

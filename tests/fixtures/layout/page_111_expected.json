@@ -1,0 +1,58 @@
+{
+  "page": 111,
+  "source_pdf": "data/input/عمود النسب نسخة 2.pdf",
+  "dpi": 200,
+  "num_boxes": 172,
+  "content_bbox": [
+    27,
+    108,
+    3054,
+    4369
+  ],
+  "note": "No-cut sparse page: 6 gaps, zero separators, no smaller text; score=1, not cut.",
+  "boundaries": {
+    "score": 1,
+    "detected": false,
+    "footnote_y": 4369,
+    "candidate_y": 4121,
+    "has_gap": true,
+    "gap_y": 4121,
+    "has_separator": false,
+    "separator_y": null,
+    "has_smaller_text": false,
+    "match_tolerance": 127
+  },
+  "gaps": [
+    {
+      "start_y": 2555,
+      "end_y": 2568,
+      "height": 13
+    },
+    {
+      "start_y": 2671,
+      "end_y": 2683,
+      "height": 12
+    },
+    {
+      "start_y": 3456,
+      "end_y": 3485,
+      "height": 29
+    },
+    {
+      "start_y": 3582,
+      "end_y": 3598,
+      "height": 16
+    },
+    {
+      "start_y": 3937,
+      "end_y": 4112,
+      "height": 175
+    },
+    {
+      "start_y": 4121,
+      "end_y": 4271,
+      "height": 150
+    }
+  ],
+  "separators": []
+}

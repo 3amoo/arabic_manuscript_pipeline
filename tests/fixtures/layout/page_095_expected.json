@@ -1,0 +1,90 @@
+{
+  "page": 95,
+  "source_pdf": "data/input/عمود النسب نسخة 2.pdf",
+  "dpi": 200,
+  "num_boxes": 513,
+  "content_bbox": [
+    152,
+    111,
+    3018,
+    4296
+  ],
+  "note": "Score-2/3 cut from a gap at y=3598 plus a separator at y=3592, with same-size text below (has_smaller_text=False).",
+  "boundaries": {
+    "score": 2,
+    "detected": true,
+    "footnote_y": 3598,
+    "candidate_y": 3598,
+    "has_gap": true,
+    "gap_y": 3598,
+    "has_separator": true,
+    "separator_y": 3592,
+    "has_smaller_text": false,
+    "match_tolerance": 125
+  },
+  "gaps": [
+    {
+      "start_y": 2563,
+      "end_y": 2605,
+      "height": 42
+    },
+    {
+      "start_y": 2758,
+      "end_y": 2793,
+      "height": 35
+    },
+    {
+      "start_y": 2955,
+      "end_y": 2972,
+      "height": 17
+    },
+    {
+      "start_y": 2984,
+      "end_y": 3005,
+      "height": 21
+    },
+    {
+      "start_y": 3168,
+      "end_y": 3181,
+      "height": 13
+    },
+    {
+      "start_y": 3190,
+      "end_y": 3218,
+      "height": 28
+    },
+    {
+      "start_y": 3375,
+      "end_y": 3587,
+      "height": 212
+    },
+    {
+      "start_y": 3598,
+      "end_y": 3639,
+      "height": 41
+    },
+    {
+      "start_y": 3883,
+      "end_y": 3929,
+      "height": 46
+    },
+    {
+      "start_y": 3989,
+      "end_y": 4150,
+      "height": 161
+    },
+    {
+      "start_y": 4166,
+      "end_y": 4202,
+      "height": 36
+    },
+    {
+      "start_y": 4245,
+      "end_y": 4264,
+      "height": 19
+    }
+  ],
+  "separators": [
+    3592
+  ]
+}

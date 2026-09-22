@@ -110,8 +110,19 @@ def _estimate_skew_angle(gray: np.ndarray, max_angle: float) -> float:
     if binary.sum() == 0:
         return 0.0
 
-    height, width = binary.shape
-    center = (width / 2.0, height / 2.0)
+    # Downscale for the projection search: a projection profile's
+    # variance peaks at the same angle regardless of scale, so the 4x
+    # reduction costs nothing in angular accuracy and cuts the
+    # affine-transform inner loop ~16x (the search runs ~30 rotations of
+    # a full-page image otherwise - the dominant cost in deskew at 200
+    # DPI, where a page is ~2338x3307 px).
+    scale = 4
+    h_small = max(1, binary.shape[0] // scale)
+    w_small = max(1, binary.shape[1] // scale)
+    binary = cv2.resize(
+        binary, (w_small, h_small), interpolation=cv2.INTER_NEAREST
+    )
+    center = (w_small / 2.0, h_small / 2.0)
 
     best_angle = 0.0
     best_score = -1.0

@@ -3,18 +3,11 @@ Input Handler Module
 Automatically discovers and loads PDF/images from input directory.
 """
 
-import os
 from pathlib import Path
 from typing import List, Dict, Any
 import pymupdf as fitz
 from PIL import Image
 import logging
-
-from src.pipeline.ingestion.pdf_text_extractor import (
-    PDF_TYPE_HYBRID,
-    extract_direct_text,
-    detect_pdf_type,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -22,27 +15,15 @@ logger = logging.getLogger(__name__)
 class InputHandler:
     """Handles input file discovery and loading."""
     
-    def __init__(self, input_dir: str = "data/input", enable_direct_text_extraction: bool = True):
+    def __init__(self, input_dir: str = "data/input"):
         """
         Initialize InputHandler.
-        
+
         Args:
             input_dir: Directory to search for input files
-            enable_direct_text_extraction: when True (default), each PDF
-                page is first checked for a usable embedded text layer
-                via pdf_text_extractor.extract_direct_text() - if found,
-                that page's 'direct_text' key is populated and main.py
-                skips preprocessing/OCR for it entirely (see
-                pdf_text_extractor.py's module docstring for the
-                per-page reasoning and the conservative usability check).
-                Set to False to disable the check and force every PDF
-                page through the normal render+OCR path, e.g. if a
-                manuscript's embedded text layer is known to be garbage
-                and the per-page check is somehow still passing it.
         """
         self.input_dir = Path(input_dir)
         self.input_dir.mkdir(parents=True, exist_ok=True)
-        self.enable_direct_text_extraction = enable_direct_text_extraction
         
         self.supported_formats = {
             '.pdf': self._load_pdf,
@@ -75,13 +56,22 @@ class InputHandler:
         
         return files
     
-    def load_file(self, file_path: Path, dpi: int = 300) -> List[Dict[str, Any]]:
+    def load_file(self, file_path: Path, dpi: int = 300,
+                  start_page: int = None,
+                  end_page: int = None) -> List[Dict[str, Any]]:
         """
         Load a single file and extract pages/images.
         
         Args:
             file_path: Path to the file
             dpi: Resolution for PDF conversion
+            start_page: 1-indexed first page to render (PDF only; pages
+                before this are skipped at RENDER time, not filtered out
+                after - rendering them just to throw the pixels away is
+                the dominant memory cost on a long book). None = from the
+                first page.
+            end_page: 1-indexed last page to render (inclusive). None = to
+                the last page.
         
         Returns:
             List of page dictionaries with metadata
@@ -100,70 +90,72 @@ class InputHandler:
         
         # Use the appropriate loader
         loader = self.supported_formats[extension]
-        pages = loader(file_path, dpi)
+        pages = loader(file_path, dpi, start_page=start_page, end_page=end_page)
         
         logger.info(f"Loaded {len(pages)} pages from {file_path.name}")
         
         return pages
     
-    def _load_pdf(self, file_path: Path, dpi: int) -> List[Dict[str, Any]]:
-        """Load PDF and convert pages to images."""
+    def _load_pdf(self, file_path: Path, dpi: int,
+                  start_page: int = None,
+                  end_page: int = None) -> List[Dict[str, Any]]:
+        """Load PDF and convert pages to images.
+
+        start_page/end_page (both 1-indexed and inclusive, either may be
+        None) bound what gets RENDERED, not just what gets returned - a
+        300-page book at 200 DPI is ~2.4 GB of pixel data, so skipping
+        the render for out-of-range pages is the point, not an
+        afterthought."""
         pages = []
         
         try:
             doc = fitz.open(file_path)
             logger.info(f"PDF has {len(doc)} pages")
-            
-            direct_text_count = 0
-            # One usable-text verdict per page, in page order, collected
-            # below so we can classify the WHOLE file explicitly
-            # (pdf_text_extractor.detect_pdf_type, AGENTS.md §4.5) after
-            # the loop. Per-page routing stays the real decision; this
-            # file-level label exists so a TXT/HYBRID file is never
-            # silently treated as a uniform IMAGE-OCR job.
-            usable_text_flags = []
 
             for page_num in range(len(doc)):
-                page = doc[page_num]
+                one_indexed = page_num + 1
+                # Bounds checks are deliberately on the render loop, not
+                # a post-filter: the pixels never exist if they're not
+                # needed. `break` (not `continue`) for the upper bound
+                # since pages are ordered.
+                if start_page is not None and one_indexed < start_page:
+                    continue
+                if end_page is not None and one_indexed > end_page:
+                    break
 
-                # Direct text-layer check FIRST, before rendering - see
-                # pdf_text_extractor.py's module docstring. This is a
-                # per-page decision (not per-file): a single PDF can mix
-                # digitally-authored pages with scanned image pages, so
-                # every page gets its own independent check. Rendering
-                # below still happens unconditionally either way (the
-                # 'image' key is relied on uniformly downstream, and
-                # rendering isn't the expensive step this check saves -
-                # OCR/GPU time is), only main.py's OCR pass is skipped
-                # for pages where this returns usable text.
-                direct_text = None
-                if self.enable_direct_text_extraction:
-                    direct_text = extract_direct_text(page)
-                    if direct_text:
-                        direct_text_count += 1
-                    usable_text_flags.append(direct_text is not None)
+                page = doc[page_num]
 
                 # Render page to image
                 mat = fitz.Matrix(dpi / 72, dpi / 72)  # 72 is default PDF DPI
                 pix = page.get_pixmap(matrix=mat)
-                
+
                 # Convert to numpy array
                 import numpy as np
                 img_data = np.frombuffer(pix.samples, dtype=np.uint8)
                 img_data = img_data.reshape((pix.height, pix.width, pix.n))
-                
+
                 # Convert RGB to BGR if needed (OpenCV format)
                 if pix.n == 3:
                     import cv2
                     img_data = cv2.cvtColor(img_data, cv2.COLOR_RGB2BGR)
-                
+
+                # The embedded text-layer shortcut was retired (a broken
+                # ToUnicode CMap produces well-formed-but-position-permuted
+                # Arabic that passes any codepoint/ratio check). For
+                # `لمعة النسب.pdf` the corruption is an anagrammatic
+                # ligature-order defect that IS repairable (spec 021), but
+                # the repaired text is still only fit as a cross-check, not
+                # as an OCR replacement. PDF pages therefore always go
+                # through the render -> preprocess -> layout -> OCR path.
+                # Kept as an explicit key (not omitted) so every page dict
+                # has the same shape regardless of loader.
                 page_data = {
                     'page_num': page_num + 1,
                     'image': img_data,
                     'width': pix.width,
                     'height': pix.height,
                     'source_file': file_path.name,
-                    'direct_text': direct_text,
+                    'direct_text': None,
                     'metadata': {
                         'rotation': page.rotation,
                         'rect': list(page.rect),
@@ -175,37 +167,6 @@ class InputHandler:
                 if (page_num + 1) % 10 == 0:
                     logger.info(f"  Processed {page_num + 1}/{len(doc)} pages")
 
-            if self.enable_direct_text_extraction and direct_text_count:
-                logger.info(
-                    f"  Direct text-layer extraction: {direct_text_count}/{len(doc)} "
-                    f"page(s) will skip OCR entirely (usable embedded text found)."
-                )
-
-            # File-level classification (AGENTS.md §4.5): when the
-            # extraction check is disabled, every page was OCR'd, so the
-            # file is an IMAGE job from the pipeline's point of view.
-            if not self.enable_direct_text_extraction:
-                usable_text_flags = [False] * len(doc)
-
-            pdf_type = detect_pdf_type(usable_text_flags)
-
-            # HYBRID must be reported EXPLICITLY, never silently
-            # funnelled into a single path (§4.5: "لا يَسقط بصمت إلى
-            # OCR"). TEXT/IMAGE are normal info lines.
-            log_func = logger.warning if pdf_type == PDF_TYPE_HYBRID else logger.info
-            log_func(
-                f"  File-level PDF type: {pdf_type} "
-                f"({direct_text_count}/{len(doc)} page(s) with a usable "
-                f"embedded text layer) - per-page routing still applies; "
-                f"see AGENTS.md §4.5."
-            )
-            if pdf_type == PDF_TYPE_HYBRID:
-                logger.warning(
-                    "  HYBRID is not a single-path job: text-layer pages "
-                    "take direct extraction, image pages take OCR - decided "
-                    "per page. Not falling back to whole-file OCR."
-                )
-
             doc.close()
             
         except Exception as e:
@@ -214,34 +175,47 @@ class InputHandler:
         
         return pages
     
-    def _load_image(self, file_path: Path, dpi: int) -> List[Dict[str, Any]]:
-        """Load image file."""
+    def _load_image(self, file_path: Path, dpi: int,
+                    start_page: int = None,
+                    end_page: int = None) -> List[Dict[str, Any]]:
+        """Load image file. The page-range arguments exist only for
+        signature parity with _load_pdf (both are called through the same
+        supported_formats dispatch table) - a single image is always page
+        1, so any range not covering page 1 yields no pages."""
         pages = []
         
         try:
-            # Open with PIL
-            img = Image.open(file_path)
+            # Open with PIL and normalize to RGB before any further processing.
+            # Handles grayscale, RGBA, palette, 1-bit, and any other PIL mode.
+            img = Image.open(file_path).convert("RGB")
             
-            # Convert to numpy array
+            # Convert to numpy array and from RGB to BGR (OpenCV format)
             import numpy as np
-            img_array = np.array(img)
-            
-            # Convert RGB to BGR if needed
-            if len(img_array.shape) == 3 and img_array.shape[2] == 3:
-                import cv2
-                img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-            
+            import cv2
+            img_array = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+
+            if start_page is not None and 1 < start_page:
+                logger.info(
+                    f"  Image file is a single page - requested "
+                    f"start_page={start_page} skips it entirely"
+                )
+                return pages
+            if end_page is not None and end_page < 1:
+                logger.info(
+                    f"  Image file is a single page - requested "
+                    f"end_page={end_page} skips it entirely"
+                )
+                return pages
+
             page_data = {
                 'page_num': 1,
                 'image': img_array,
                 'width': img.width,
                 'height': img.height,
                 'source_file': file_path.name,
-                # No PDF text layer to speak of for a plain image file -
-                # always OCR. Kept as an explicit key (not omitted) so
-                # every page dict has the same shape regardless of loader,
-                # and main.py's page_data.get('direct_text') check works
-                # identically either way.
+                # No PDF text layer support for plain image files - always
+                # OCR. Kept as an explicit key (not omitted) so every page
+                # dict has the same shape regardless of loader.
                 'direct_text': None,
                 'metadata': {
                     'format': img.format,
@@ -273,7 +247,7 @@ class InputHandler:
                 doc = fitz.open(file_path)
                 info['pages'] = len(doc)
                 doc.close()
-            except:
+            except Exception:
                 info['pages'] = None
         
         return info

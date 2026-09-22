@@ -63,7 +63,7 @@ def extract_crops_from_page(image, page_num):
     crop extraction logic. Returns a list of dicts:
         {page, region_type, crop_img, crop_shape}
     """
-    binary = layout.binarize(image)
+    binary = layout.binarize_to_255(image)
     dilated = layout.dilate_text(binary)
     boxes = layout.remove_border_components(
         layout.find_components(dilated), image.shape[1], image.shape[0]
@@ -94,7 +94,7 @@ def extract_crops_from_page(image, page_num):
 
     # -- poetry region --
     poetry_crop = image[poetry_bbox[1]:poetry_bbox[3], poetry_bbox[0]:poetry_bbox[2]]
-    crop_bin = rowseg.binarize(poetry_crop)
+    crop_bin = rowseg.binarize_to_mask(poetry_crop)
     crop_bin, _ = rowseg.remove_edge_frame_lines(crop_bin)
     gutter = rowseg.detect_gutter(crop_bin)
     lines = _detect_line_bands(poetry_crop, crop_bin)
@@ -129,7 +129,7 @@ def extract_crops_from_page(image, page_num):
     # -- prose region --
     if prose_bbox is not None:
         prose_crop = image[prose_bbox[1]:prose_bbox[3], prose_bbox[0]:prose_bbox[2]]
-        prose_bin = rowseg.binarize(prose_crop)
+        prose_bin = rowseg.binarize_to_mask(prose_crop)
         prose_bin, _ = rowseg.remove_edge_frame_lines(prose_bin)
         prose_lines = _detect_line_bands(prose_crop, prose_bin)
 
@@ -155,7 +155,7 @@ def main():
 
     # -- load PDF pages --
     print(f"Loading {PDF_PATH.name} ...")
-    handler = InputHandler(input_dir="data/input", enable_direct_text_extraction=True)
+    handler = InputHandler(input_dir="data/input")
     pages = handler.load_file(PDF_PATH, dpi=200)
     print(f"Loaded {len(pages)} pages.")
 

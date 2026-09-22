@@ -7,20 +7,19 @@ one-off/occasional maintenance script you run whenever your API keys
 change or you want to refresh which vision models are configured.
 
 WHAT IT DOES, IN ORDER:
-    1. Loads .env and checks which of the 6 provider API keys are
-       actually present (ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY,
-       OPENROUTER_API_KEY, COHERE_API_KEY, GITHUB_API_KEY).
+    1. Loads .env and checks which of the provider API keys are
+        actually present (GEMINI_API_KEY, OPENROUTER_API_KEY,
+        COHERE_API_KEY).
     2. For every provider that HAS a key, calls that provider's OWN
        list-models endpoint over the network. Nothing is ever guessed or
        hardcoded here - if a call fails, that provider is skipped and
        reported, never silently filled in with a made-up name.
     3. Filters each provider's raw model list down to ones that look
        vision-capable, using whatever capability signal that provider's
-       API actually exposes (OpenRouter, Anthropic and GitHub Models
-       expose real modality/capability fields; Groq/Cohere don't
-       consistently, so those fall back to a documented keyword
-       heuristic - see PROVIDERS below for exactly which method each one
-       uses).
+       API actually exposes (OpenRouter and GitHub Models expose real
+       modality/capability fields; Groq/Cohere don't consistently, so
+       those fall back to a documented keyword heuristic - see PROVIDERS
+       below for exactly which method each one uses).
     4. Shows you the shortlist per provider and asks you to confirm or
        pick a different one (unless --yes is passed, in which case it
        takes the first/best-ranked candidate automatically).
@@ -78,7 +77,15 @@ DEFAULT_VISION_MODULE_PATH = Path(__file__).parent / "vision_fallback.py"
 # key is missing, whose API call fails, or who have zero vision-capable
 # candidates are simply skipped - this is a preference order, not a
 # requirement.
-PREFERRED_ROTATION_ORDER = ["gemini", "groq", "openrouter", "cohere", "github_models"]
+#
+# NOTE (2026-09-20 health probe, docs/backend_health_table.md): groq and
+# github_models are absent here deliberately. Groq's catalog has zero
+# vision ids (a text-only model here hallucinates confidently and looks
+# like it works), and GitHub Models is being retired (HTTP 410). This
+# list is only a preference - whatever this script discovers still has to
+# pass check_vision_health.py's blank-image control before it belongs in
+# the rotation.
+PREFERRED_ROTATION_ORDER = ["gemini", "openrouter", "cohere"]
 
 # Set once from args.debug in main(). Read by _dump_raw() in every
 # discover_* function. Module-level instead of threading a debug
@@ -310,65 +317,17 @@ def discover_cohere(api_key: str) -> List[Tuple[str, str]]:
     return results
 
 
-def discover_github_models(api_key: str) -> List[Tuple[str, str]]:
-    """
-    GitHub Models catalog endpoint.
-
-    FIX (previously returned 410 Gone): the URL itself was already
-    correct (confirmed against docs.github.com/en/rest/models/catalog),
-    but GitHub's REST API is versioned and this endpoint requires an
-    explicit X-GitHub-Api-Version header. Without it, the request was
-    routed to a default API version that has been retired for this
-    endpoint, which is what produced the 410 - not that the endpoint
-    moved.
-
-    The documented response also exposes supported_input_modalities
-    directly per model - the same strength of signal OpenRouter provides
-    - so that's now used as the primary method. The keyword heuristic on
-    id/tags is kept only as a fallback for any entry missing that field.
-    """
-    resp = requests.get(
-        "https://models.github.ai/catalog/models",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-        timeout=20,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    models = data.get("models", []) if isinstance(data, dict) else data
-    _dump_raw("github_models", data)
-
-    results = []
-    for m in models:
-        model_id = m.get("id") or m.get("name") or ""
-        if _is_excluded_model(model_id):
-            continue
-
-        input_modalities = m.get("supported_input_modalities")
-        if input_modalities is not None:
-            if "image" in input_modalities:
-                results.append((model_id, "supported_input_modalities includes 'image' (confirmed by API)"))
-            continue
-
-        # Fallback for entries missing the field (shouldn't happen per
-        # current docs, kept defensively rather than dropping them).
-        tags = " ".join(m.get("tags", []) if isinstance(m.get("tags"), list) else [])
-        haystack = f"{model_id} {tags}"
-        if _keyword_score(haystack, VISION_KEYWORDS) > 0:
-            results.append((model_id, "id/tags matched vision keyword, heuristic only"))
-    return results
-
-
 # name -> (env var, discovery function, backend name used in vision_fallback.py)
+#
+# groq and github_models were removed (2026-09-20 health probe,
+# docs/backend_health_table.md): Groq's catalog has no vision ids at all,
+# and GitHub Models is being retired (HTTP 410 retirement_brownout on
+# every endpoint). Re-adding either requires a passing
+# check_vision_health.py blank-image control first.
 PROVIDERS = {
     "gemini": ("GEMINI_API_KEY", discover_gemini),
-    "groq": ("GROQ_API_KEY", discover_groq),
     "openrouter": ("OPENROUTER_API_KEY", discover_openrouter),
     "cohere": ("COHERE_API_KEY", discover_cohere),
-    "github_models": ("GITHUB_API_KEY", discover_github_models),
 }
 
 

@@ -64,6 +64,7 @@ class RepeatedVerbatimTracker:
     Config key, under config['vision_fallback'] in settings.yaml:
         repeated_verbatim_db: str   - default
 "data/output/.cache/repeated_verbatim.sqlite3"
+        repeated_verbatim_min_occurrences: int - default 3
 
     Same SQLite conventions as ocr_cache.py: autocommit (isolation_level
     = None) so every occurrence is durable immediately - a crash on page
@@ -72,11 +73,29 @@ class RepeatedVerbatimTracker:
 
     If enabled=False, register() always returns False and opens no file -
     the caller falls back to the old behavior with zero extra I/O.
+
+    MIN_OCCURRENCES (why the default is 3, not 2): an earlier version
+    flagged a phrase as repeated the moment it was seen a second time
+    (count > 0). That rejected legitimate repetition that a classical
+    poetry manuscript genuinely contains - refrains that recur across
+    pages, the basmala and other section-opening formulas - and a
+    recurring phrase is exactly what the tracker was built to catch, so
+    a hair trigger traded one false-positive class for another. The
+    threshold counts occurrences, so a phrase is only flagged once it
+    has already appeared this many times; the first (min_occurrences -
+    1) sightings pass through unflagged.
     """
 
     def __init__(self, db_path: str = "data/output/.cache/repeated_verbatim.sqlite3",
-                 enabled: bool = True):
+                 enabled: bool = True, min_occurrences: int = 3):
         self.enabled = enabled
+        # A phrase is only flagged as 'repeated_verbatim' once it has
+        # been seen this many times (see the class docstring for why the
+        # default is 3 and not 2). Floored at 2 so a misconfiguration of
+        # 1 or 0 can't flip the tracker into flagging every first
+        # sighting - that would flag every escalation, defeating the
+        # point of the flag.
+        self.min_occurrences = max(2, int(min_occurrences or 3))
         self.repeated_this_run = 0
         self.total_occurrences = 0
         self._conn: Optional[sqlite3.Connection] = None
@@ -106,9 +125,12 @@ class RepeatedVerbatimTracker:
     def register(self, text: str) -> bool:
         """
         Record one occurrence of an escalated `text`. Returns True if this
-        exact (normalized) phrase has been seen before - by any earlier
-        run stored in the DB or earlier in this run - i.e. it should be
-        flagged as 'repeated_verbatim'.
+        exact (normalized) phrase has now been seen
+        `min_occurrences` times - by any earlier run stored in the DB or
+        earlier in this run - i.e. it should be flagged as
+        'repeated_verbatim'. Below that threshold it returns False even
+        for a phrase seen once or twice, because a classical manuscript
+        legitimately repeats refrains and opening formulas.
         """
         if not self.enabled:
             return False
@@ -124,7 +146,10 @@ class RepeatedVerbatimTracker:
         ).fetchone()
 
         count = int(row[0]) if row else 0
-        is_repeated = count > 0
+        # This occurrence is recorded below regardless of the verdict -
+        # a phrase that passes today is still counted toward tomorrow's
+        # threshold.
+        is_repeated = (count + 1) >= self.min_occurrences
 
         self._conn.execute(
             "INSERT OR REPLACE INTO repeated_verbatim "

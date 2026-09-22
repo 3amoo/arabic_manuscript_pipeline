@@ -64,13 +64,49 @@ RULE_MAX_HEIGHT_PX = 18
 RULE_MIN_WIDTH_RATIO = 0.40
 
 
-def binarize(image_bgr):
+# A band this tall (relative to its region) is a decorative page frame,
+# not text. Set at 0.75 rather than near 0.5 because a genuine text band
+# in a SHORT region can legitimately cover half of it: the
+# zero-crop-guard regression fixture is a 200px-tall region whose single
+# text band spans 101px (0.505), which a 0.5 threshold wrongly treats as
+# a frame and drops, reintroducing the silent-loss failure mode. Real
+# decorative frames cover nearly the whole page (the page-113 case was
+# 3004px of a ~3000px region, ratio ~0.99), so 0.75 separates the two
+# with margin on both sides.
+FRAME_AS_BAND_RATIO = 0.75
+
+# --- Marginalia classification (NEXT_DEVELOPMENT_PLAN Group C) ---
+# A detected line band whose ink sits almost entirely on ONE side of the
+# central gutter is a margin note, not part of the verse stream.
+# Classical Arabic manuscripts carry scribal corrections and glosses in
+# the margins; left unclassified they get detected as their own bands
+# and interleaved into the poetry output as short fragments that don't
+# belong to any verse (measured on page 47: four such bands in the
+# right margin, each 86-96% one-sided).
+
+# Fraction of a band's ink that must sit on one side of the gutter for
+# it to count as marginalia. Verse rows measured at 0.33-0.47 per side,
+# margin notes at 0.86-0.96 - this threshold sits in the wide gap.
+MARGIN_SIDE_INK_RATIO = 0.7
+
+# How far inside/outside the detected gutter band the side-mass
+# measurement starts, in px. Keeps the gutter's own (near-zero) ink out
+# of both buckets so the fractions are of real hemistich ink.
+GUTTER_MARGIN_PAD = 200
+
+def binarize_to_mask(image_bgr):
     """
     Convert to grayscale and threshold so that text becomes white (255)
     foreground on black (0) background. Uses adaptive thresholding to
     preserve thin diacritics (tashkeel) which global Otsu tends to erode
     on Arabic manuscript scans (see AGENTS.md §4.2).
     Returns 0/1 binary mask (for the row-segmentation logic).
+
+    Named binarize_to_mask (not just binarize) because
+    page_layout_detector.py has its own binarize_to_255() returning the
+    raw 0/255 image - the two are NOT interchangeable (this module's own
+    remove_edge_frame_lines depends on the 0/1 convention), and the
+    distinct names keep a mix from silently corrupting detection.
     """
     from src.pipeline.preprocessing.preprocessing import adaptive_binarize
 
@@ -395,6 +431,17 @@ def is_obvious_horizontal_rule(binary, band):
     ink_width = int(xs.max() - xs.min() + 1)
     ink_height = int(ys.max() - ys.min() + 1)
 
+    # A band nearly as tall as the whole region is a decorative page
+    # frame, not a line of text (escalation-threshold audit, page 113:
+    # a 3004px-tall band covering the entire page, cc=2059, that the
+    # border/frame filters upstream missed). Such a band has no line
+    # structure to OCR and only produces a garbage 1-3 character guess
+    # that then escalates to vision. This bound is a ratio, not a pixel
+    # count, so it needs no DPI scaling.
+    band_height = y2 - y1
+    if band_height > binary.shape[0] * FRAME_AS_BAND_RATIO:
+        return True
+
     return (
         ink_height <= RULE_MAX_HEIGHT_PX
         and ink_width >= binary.shape[1] * RULE_MIN_WIDTH_RATIO
@@ -439,6 +486,53 @@ def classify_line(binary, band, gutter_info):
         if both_sides and gutter_clear
         else "full_width"
     )
+
+
+def classify_band(binary, band, gutter_info):
+    """
+    Is this line band part of the main text column, or marginalia?
+
+    Uses the gutter the pipeline already detects: a verse row has ink on
+    BOTH sides of the central gutter (the two hemistiches), while a
+    margin note has almost all of its ink on ONE side. Measured on page
+    47 of this manuscript: verse rows sit at 0.33-0.47 ink mass on each
+    side, genuine margin notes at 0.86-0.96 on one side - a wide, clean
+    separation with no overlap.
+
+    This is deliberately a MASS-FRACTION test, not an x-extent test.
+    Dilation noise and the page frame make a band's ink *extent* span
+    the whole width even when its mass is central, so extent-based
+    classification finds margin notes everywhere and nowhere. The
+    fraction of ink on each side of the gutter is the signal that
+    actually separates the two populations.
+
+    A full-width line with no detected gutter, or a gutter this band
+    barely overlaps, cannot be classified this way - returns "main"
+    rather than guessing (a false margin label would drop a real verse).
+
+    NEXT_DEVELOPMENT_PLAN Group C step 2: geometric only, no ML, no OCR.
+    Rotated (90-degree) margin text is out of scope for this pass, since
+    no band detector in the pipeline currently produces rotated bands.
+    """
+    if not gutter_info.get("detected"):
+        return "main"
+
+    g_left = int(gutter_info["gutter_left"])
+    g_right = int(gutter_info["gutter_right"])
+    y1, y2 = band
+
+    region = binary[y1:y2, :]
+    total = int(region.sum())
+    if total == 0:
+        return "main"
+
+    left_mass = int(region[:, :max(g_left - GUTTER_MARGIN_PAD, 0)].sum())
+    right_mass = int(region[:, g_right + GUTTER_MARGIN_PAD:].sum())
+
+    left_frac = left_mass / total
+    right_frac = right_mass / total
+
+    return "margin" if max(left_frac, right_frac) >= MARGIN_SIDE_INK_RATIO else "main"
 
 
 def crop_nonempty_x(

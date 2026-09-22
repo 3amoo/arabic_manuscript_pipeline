@@ -47,6 +47,7 @@ the aggregate is comparable across runs.
 """
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -122,11 +123,37 @@ def parse_page_spec(spec: str) -> list:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--document", required=True)
-    ap.add_argument("--pages", required=True, help="e.g. 24-26 or 20,24-27")
+    ap.add_argument("--pages", help="e.g. 24-26 or 20,24-27 (ignored with --alignment)")
     ap.add_argument("--diacritics", choices=["strip", "keep"], default="strip")
     ap.add_argument("--output-root", default="data/output")
     ap.add_argument("--gt-root", default="data/ground_truth")
+    # --- spec 006 additions (contracts/cli.md) ---
+    ap.add_argument(
+        "--alignment",
+        default=None,
+        help="alignment.json from align_ground_truth (spec 006 mode)",
+    )
+    ap.add_argument(
+        "--diacritics-metrics",
+        action="store_true",
+        help="add correct/missing/wrong diacritic stats (needs --alignment)",
+    )
+    ap.add_argument(
+        "--report-dir",
+        default="data/evaluation_reports/006",
+        help="where to write quality_report.* and heatmap.txt",
+    )
+    ap.add_argument(
+        "--heatmap",
+        action="store_true",
+        help="write ASCII heatmap of per-page CER",
+    )
     args = ap.parse_args()
+
+    if args.alignment:
+        if args.diacritics_metrics:
+            pass  # handled inside _run_alignment_mode
+        return _run_alignment_mode(args)
 
     pages = parse_page_spec(args.pages)
     keep = args.diacritics == "keep"
@@ -182,6 +209,514 @@ def main() -> int:
     print(f"\naggregate ({len(pages)} pages, {tot_ref_chars} chars, "
           f"{tot_ref_words} words): CER={cer_all:.2f}%  WER={wer_all:.2f}%")
     return 0
+
+
+
+# --- spec 006 additions -------------------------------------------------
+# Alignment-based scoring (FR-004..FR-007) + diacritic metrics (FR-005).
+# These EXTEND the original per-page-GT mode; the original `--pages`
+# mode above is preserved unchanged (Constitution II: evolve, no rewrite).
+
+import unicodedata  # noqa: E402  (kept local to the additions)
+
+DIACRITIC_RANGES = (
+    "\u064B",  # fathatan
+    "\u064C",  # dammatan
+    "\u064D",  # kasratan
+    "\u064E",  # fatha
+    "\u064F",  # damma
+    "\u0650",  # kasra
+    "\u0651",  # shadda
+    "\u0652",  # sukun
+    "\u0670",  # superscript alef
+)
+
+
+def _is_diacritic(ch: str) -> bool:
+    return ch in DIACRITIC_RANGES
+
+
+def analyze_diacritics(gt_text: str, out_text: str) -> dict:
+    """
+    Diacritic preservation metric (FR-005, research.md R6).
+
+    Two complementary signals:
+
+    1. **Density ratio** (primary): marks-per-Arabic-base-letter in each
+       text. The output's density divided by GT's density is the
+       fraction of diacritics the pipeline retained. This does NOT
+       require word alignment and is therefore robust to OCR character
+       errors — a word-level comparison was measured to be useless here
+       (only 2% of output words are byte-identical in their base form,
+       because the OCR misreads letters throughout).
+    2. **Per-word counts** (secondary, best-effort): for the subset of
+       words whose base letters match exactly, count correct / missing
+       / wrong / extra. These are lower bounds and are labelled as such
+       — they are not a complete census.
+
+    `accuracy` = the density ratio, the honest headline number.
+    """
+    def density(s):
+        marks = sum(1 for c in s if unicodedata.combining(c))
+        base = sum(
+            1
+            for c in s
+            if "ARABIC" in unicodedata.name(c, "")
+            and not unicodedata.combining(c)
+        )
+        return marks / base if base else 0.0
+
+    gt_dens = density(gt_text)
+    out_dens = density(out_text)
+    ratio = out_dens / gt_dens if gt_dens else 0.0
+
+    # Best-effort per-word census on exactly-matching base words.
+    def split_words(s):
+        out = []
+        for w in s.split():
+            base = "".join(c for c in w if not unicodedata.combining(c))
+            marks = [c for c in w if unicodedata.combining(c)]
+            out.append((base, marks))
+        return out
+
+    gw = split_words(gt_text)
+    ow = split_words(out_text)
+    stats = {"correct": 0, "missing": 0, "wrong": 0, "extra": 0}
+    n = min(len(gw), len(ow))
+    for i in range(n):
+        gb, gm = gw[i]
+        ob, om = ow[i]
+        if gb != ob:
+            continue
+        if gm and om and gm == om:
+            stats["correct"] += 1
+        elif gm and not om:
+            stats["missing"] += 1
+        elif gm and om and gm != om:
+            stats["wrong"] += 1
+        elif not gm and om:
+            stats["extra"] += 1
+
+    stats["gt_density"] = round(gt_dens, 4)
+    stats["out_density"] = round(out_dens, 4)
+    stats["total_gt"] = stats["correct"] + stats["missing"] + stats["wrong"]
+    stats["accuracy"] = round(ratio, 4)
+    stats["loss_pct"] = round((1.0 - ratio) * 100, 1)
+    stats["note"] = (
+        "accuracy = density ratio (marks/base letter). Per-word counts "
+        "are a lower bound on exactly-base-matched words only."
+    )
+    return stats
+
+
+def score_aligned_page(gt_verses, raw_path, entry, keep_diacritics=False):
+    """
+    Score one page against its aligned GT slice (spec 006 FR-004).
+
+    gt_verses: full normalized GT list (diacritics stripped).
+    entry: AlignmentEntry dict (gt_start/gt_end are 1-based).
+    Returns None when the page cannot be scored honestly.
+    """
+    if entry["gt_start"] is None or entry["gt_end"] is None:
+        return None
+    status = entry["status"]
+    if status in ("out_of_gt_scope", "empty_page", "prose_only"):
+        return None
+    # An unmatched page is now scored when it carries a recovered
+    # best-effort window (spec 008, FR-002/FR-006): the window exists
+    # to keep the GT cursor honest, and excluding the page would
+    # silently understate the corpus CER by dropping exactly the worst
+    # pages (measured: p59/p67 excluded at 0.0% in the spec-006 report
+    # while their true-window CER is 54.1%/42.3%). The page is still
+    # flagged recovered + unmatched so nobody mistakes it for clean.
+    if status == "unmatched" and not entry.get("recovered"):
+        return None
+
+    lo = entry["gt_start"] - 1
+    hi = entry["gt_end"]  # exclusive
+    ref_verses = gt_verses[lo:hi]
+    if not ref_verses:
+        return None
+
+    hyp_verses = [
+        normalize_text(l, keep_diacritics)
+        for l in load_page_text(raw_path).splitlines()
+        if l.strip() and not l.lstrip().startswith("#") and " ... " in l
+    ]
+    n = min(len(ref_verses), len(hyp_verses))
+    if n == 0:
+        return None
+
+    ref = " ".join(ref_verses[:n])
+    hyp = " ".join(hyp_verses[:n])
+    return {
+        "cer": jiwer.cer(ref, hyp),
+        "wer": jiwer.wer(ref, hyp),
+        "gt_verses_count": len(ref_verses),
+        "out_verses_count": len(hyp_verses),
+        "evaluated_verses_count": n,
+        "ref_chars": len(ref),
+        "ref_words": len(ref.split()),
+        "status": status,
+    }
+
+
+def build_corpus_report(document, entries, gt_verses, raw_dir, report_dir,
+                        diacritics_metrics=False, gt_file=None):
+    """
+    Assemble the full CorpusReport (data-model.md) for aligned pages.
+    Writes quality_report.json + quality_report.txt.
+    """
+    pages = []
+    total_ref_chars = 0
+    total_ref_words = 0
+    concat_ref = []
+    concat_hyp = []
+    hall_total = 0
+
+    for e in entries:
+        raw_path = raw_dir / f"page_{e['page']:03d}.txt"
+        scored = score_aligned_page(gt_verses, raw_path, e)
+        hall_total += len(e.get("hallucination_verses") or [])
+
+        pq = {
+            "page": e["page"],
+            "status": e["status"],
+            "recovered": bool(e.get("recovered")),
+            "cer": None,
+            "wer": None,
+            "diacritics": None,
+            "gt_verses_count": e.get("gt_verses_count", 0),
+            "out_verses_count": e.get("out_verses_count", 0),
+            "evaluated_verses_count": 0,
+            "hallucination_count": len(e.get("hallucination_verses") or []),
+        }
+        if scored:
+            pq.update(scored)
+            pq.pop("status", None)
+            pq["status"] = scored["status"]
+            concat_ref.append(" ".join(
+                gt_verses[e["gt_start"] - 1: e["gt_end"]]
+            ))
+            concat_hyp.append(" ".join(
+                normalize_text(l)
+                for l in load_page_text(raw_path).splitlines()
+                if l.strip() and not l.lstrip().startswith("#")
+                and " ... " in l
+            ))
+            total_ref_chars += scored["ref_chars"]
+            total_ref_words += scored["ref_words"]
+
+            if diacritics_metrics and gt_file is not None:
+                raw_gt = _raw_gt_slice(gt_file, e)
+                raw_out = _raw_out_verses(raw_path)
+                n = min(len(raw_gt), len(raw_out))
+                pq["diacritics"] = analyze_diacritics(
+                    "\n".join(raw_gt[:n]), "\n".join(raw_out[:n])
+                )
+        pages.append(pq)
+
+    ref_all = " ".join(concat_ref)
+    hyp_all = " ".join(concat_hyp)
+    weighted_cer = jiwer.cer(ref_all, hyp_all) if ref_all else 0.0
+    weighted_wer = jiwer.wer(ref_all, hyp_all) if ref_all else 0.0
+
+    dia_total = {"correct": 0, "missing": 0, "wrong": 0, "extra": 0,
+                 "total_gt": 0, "accuracy": 0.0,
+                 "gt_density": 0.0, "out_density": 0.0, "loss_pct": 0.0,
+                 "note": ""}
+    if diacritics_metrics:
+        # Weighted density across the whole evaluated corpus.
+        marks_gt = 0
+        base_gt = 0
+        marks_out = 0
+        base_out = 0
+        for p in pages:
+            if p.get("diacritics"):
+                for k in ("correct", "missing", "wrong", "extra"):
+                    dia_total[k] += p["diacritics"][k]
+        # recompute aggregate density from concatenated raw text
+        for e in entries:
+            # Only genuinely windowless pages stay out of the diacritic
+            # aggregate. A recovered unmatched page (spec 008) now has a
+            # window and IS scored, so it contributes here too.
+            if e["gt_start"] is None or gt_file is None:
+                continue
+            import unicodedata as _ud
+            raw_gt = "\n".join(_raw_gt_slice(gt_file, e))
+            raw_out = "\n".join(_raw_out_verses(
+                raw_dir / f"page_{e['page']:03d}.txt"
+            ))
+            for c in raw_gt:
+                if _ud.combining(c):
+                    marks_gt += 1
+                elif "ARABIC" in _ud.name(c, ""):
+                    base_gt += 1
+            for c in raw_out:
+                if _ud.combining(c):
+                    marks_out += 1
+                elif "ARABIC" in _ud.name(c, ""):
+                    base_out += 1
+        gtd = marks_gt / base_gt if base_gt else 0.0
+        outd = marks_out / base_out if base_out else 0.0
+        dia_total["gt_density"] = round(gtd, 4)
+        dia_total["out_density"] = round(outd, 4)
+        dia_total["accuracy"] = round(outd / gtd, 4) if gtd else 0.0
+        dia_total["loss_pct"] = round((1.0 - outd / gtd) * 100, 1) if gtd else 0.0
+        dia_total["total_gt"] = (
+            dia_total["correct"] + dia_total["missing"] + dia_total["wrong"]
+        )
+
+    scored_pages = [p for p in pages if p["cer"] is not None]
+    worst = sorted(scored_pages, key=lambda p: -p["cer"])[:10]
+    best = sorted(scored_pages, key=lambda p: p["cer"])[:5]
+
+    # Honest denominator split (spec 008 FR-007, SC-005): the aggregate
+    # CER now includes recovered pages, so the report must say how many
+    # of the scored pages are clean vs. distrusted. Otherwise the number
+    # could be misread as if every scored page were a clean measurement.
+    pages_clean = sum(1 for p in scored_pages if p["status"] == "matched")
+    pages_low_confidence = sum(
+        1 for p in scored_pages
+        if p["status"] in ("low_confidence", "count_mismatch")
+    )
+    pages_recovered = sum(
+        1 for p in scored_pages if p.get("recovered")
+    )
+    pages_excluded = len(pages) - len(scored_pages)
+
+    report = {
+        "document": document,
+        "note": "Distance to a working benchmark (Constitution VI), not "
+                "absolute truth.",
+        "generated_at": __import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc
+        ).isoformat(),
+        "gt_source": "data/ground_truth/عمود النسب/عمود_النسب.clean.md",
+        "pages_total": len(entries),
+        "pages_evaluated": len(scored_pages),
+        "pages_clean": pages_clean,
+        "pages_low_confidence": pages_low_confidence,
+        "pages_recovered": pages_recovered,
+        "pages_excluded": pages_excluded,
+        "pages_out_of_scope": sum(
+            1 for e in entries if e["status"] == "out_of_gt_scope"
+        ),
+        "pages_prose_only": sum(
+            1 for e in entries if e["status"] == "prose_only"
+        ),
+        "verses_evaluated": sum(p["evaluated_verses_count"] for p in pages),
+        "weighted_cer": weighted_cer,
+        "weighted_wer": weighted_wer,
+        "diacritics_total": dia_total,
+        "hallucination_total": hall_total,
+        "worst_pages": worst,
+        "best_pages": best,
+        "pages": pages,
+    }
+
+    report_dir.mkdir(parents=True, exist_ok=True)
+    (report_dir / "quality_report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    _write_text_report(report, report_dir / "quality_report.txt")
+    return report
+
+
+def _raw_gt_slice(gt_file, entry):
+    """
+    Raw (diacritics-intact) GT verses for one aligned page.
+    Needed because analyze_diacritics must see the marks that
+    normalize_text strips.
+    """
+    import re as _re
+    from pathlib import Path as _Path
+
+    text = _Path(gt_file).read_text(encoding="utf-8")
+    verses = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        m = _re.match(r"^\s*[\u0660-\u0669]+[\s\u060c\u061b\.]*", s)
+        if m:
+            s = s[m.end():]
+        if s.strip():
+            verses.append(s.strip())
+    lo = max(0, entry["gt_start"] - 1)
+    hi = entry["gt_end"]
+    return verses[lo:hi]
+
+
+def _raw_out_verses(raw_path):
+    """Raw (diacritics-intact) output verse lines for one page."""
+    out = []
+    for line in load_page_text(raw_path).splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        if " ... " in s:
+            out.append(s)
+    return out
+
+
+def _write_text_report(report, path):
+    r = report
+    lines = []
+    lines.append(f"=== تقرير جودة المخطوط: {r['document']} ===")
+    lines.append(f"Generated: {r['generated_at']}")
+    lines.append("")
+    lines.append(
+        "المرجع: 620 بيت (عمود_النسب.clean.md). الأرقام = مسافة إلى "
+        "benchmark عمل (Constitution §VI)، مش حقيقة مطلقة."
+    )
+    lines.append("")
+    lines.append(
+        f"الصفحات: {r['pages_total']} | قِيست: {r['pages_evaluated']} "
+        f"| خارج نطاق GT: {r['pages_out_of_scope']} "
+        f"| نثرية: {r['pages_prose_only']}"
+    )
+    # Honest denominator (spec 008 SC-005): how trustworthy are the
+    # scored pages? recovered = نُقِّلت بنافذة تقديرية (مستعادة) بعد
+    # أن فشل ربطها — تُقاس لكن لا تُعتبر قياسًا نظيفًا.
+    lines.append(
+        f"  من المقيسة: نظيفة {r.get('pages_clean', 0)} | "
+        f"ضعيفة الثقة {r.get('pages_low_confidence', 0)} | "
+        f"مستعادة (recovered) {r.get('pages_recovered', 0)} — "
+        f"خارج القياس {r.get('pages_excluded', 0)}"
+    )
+    lines.append("")
+    lines.append(f"CER المرجَّح: {r['weighted_cer'] * 100:.1f}%")
+    lines.append(f"WER المرجَّح: {r['weighted_wer'] * 100:.1f}%")
+    d = r["diacritics_total"]
+    if d.get("gt_density"):
+        lines.append(
+            f"التشكيل: كثافة GT {d['gt_density']:.3f} مقابل "
+            f"{d['out_density']:.3f} في الإخراج — استُرجع "
+            f"{d['accuracy'] * 100:.1f}% من الحركات "
+            f"(فقد {d['loss_pct']:.1f}%)"
+        )
+        lines.append(
+            f"  إحصاء الكلمات المتطابقة base-only (حد أدنى): "
+            f"correct {d['correct']} / missing {d['missing']} / "
+            f"wrong {d['wrong']} / extra {d['extra']}"
+        )
+    lines.append("")
+    lines.append(
+        f"أبيات الهلوسة المشتبهة (تشخيصي): {r['hallucination_total']}"
+    )
+    lines.append("")
+    if r["worst_pages"]:
+        lines.append("أسوأ 5 صفحات:")
+        for p in r["worst_pages"][:5]:
+            tag = p["status"]
+            if p.get("recovered"):
+                tag = f"{tag}+recovered"
+            lines.append(
+                f"  ص{p['page']}: CER {p['cer'] * 100:.1f}% "
+                f"WER {p['wer'] * 100:.1f}% [{tag}]"
+            )
+    lines.append("")
+    lines.append("أفضل 3 صفحات:")
+    for p in r["best_pages"][:3]:
+        lines.append(
+            f"  ص{p['page']}: CER {p['cer'] * 100:.1f}% "
+            f"WER {p['wer'] * 100:.1f}%"
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _run_alignment_mode(args):
+    """spec 006: --alignment mode (contracts/cli.md)."""
+    import json as _json
+    from datetime import datetime as _dt, timezone as _tz
+    from pathlib import Path as _Path
+
+    align_path = _Path(args.alignment)
+    if not align_path.exists():
+        print(f"ERROR: alignment file not found: {align_path}", file=sys.stderr)
+        return 1
+    payload = _json.loads(align_path.read_text(encoding="utf-8"))
+    entries = payload["alignment"]
+    payload_gt_file = payload["gt_file"]
+
+    # Rebuild the normalized GT list (same normalizer as align tool).
+    from src.pipeline.evaluation.align_ground_truth import extract_gt_verses
+    gt_verses = extract_gt_verses(_Path(payload["gt_file"]))
+    raw_dir = _Path(args.output_root) / args.document / "raw_text"
+
+    report = build_corpus_report(
+        args.document,
+        entries,
+        gt_verses,
+        raw_dir,
+        _Path(args.report_dir),
+        diacritics_metrics=args.diacritics_metrics,
+        gt_file=payload_gt_file,
+    )
+
+    print(f"spec 006 report -> {args.report_dir}")
+    print(
+        f"pages evaluated: {report['pages_evaluated']}/{report['pages_total']}"
+    )
+    print(f"CER: {report['weighted_cer'] * 100:.1f}%")
+    print(f"WER: {report['weighted_wer'] * 100:.1f}%")
+    if report["diacritics_total"]["total_gt"]:
+        print(
+            f"diacritics accuracy: "
+            f"{report['diacritics_total']['accuracy'] * 100:.1f}%"
+        )
+
+    if args.heatmap:
+        _write_heatmap(report, _Path(args.report_dir) / "heatmap.txt")
+    if report["pages_out_of_scope"] or report["pages_prose_only"]:
+        return 2
+    return 0
+
+
+HEATMAP_LEGEND = (
+    "المفتاح: . = لم تُقس  _ = prose  # = <5%  o = 5-15%  "
+    "O = 15-30%  X = 30-60%  ! = >60%  ? = low_conf"
+)
+
+
+def _heat_cell(page):
+    if page["cer"] is None:
+        if page["status"] == "prose_only":
+            return "_"
+        if page["status"] == "low_confidence":
+            return "?"
+        return "."
+    c = page["cer"]
+    if page["status"] == "low_confidence":
+        return "?"
+    if c < 0.05:
+        return "#"
+    if c < 0.15:
+        return "o"
+    if c < 0.30:
+        return "O"
+    if c < 0.60:
+        return "X"
+    return "!"
+
+
+def _write_heatmap(report, path):
+    pages = report.get("pages", [])
+    total = report["pages_total"]
+    lines = [f"توزيع CER عبر الصفحات ({total}):"]
+    row = []
+    labels = []
+    for i in range(1, total + 1):
+        p = next((x for x in pages if x["page"] == i), None)
+        row.append(_heat_cell(p) if p else ".")
+        if i % 10 == 1:
+            labels.append(f"{i:>5}")
+    lines.append("        " + "".join(labels))
+    lines.append("        " + "".join(row))
+    lines.append("")
+    lines.append(HEATMAP_LEGEND)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

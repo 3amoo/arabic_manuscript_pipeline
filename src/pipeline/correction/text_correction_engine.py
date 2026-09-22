@@ -56,128 +56,65 @@ it were a real correction.
 """
 
 import logging
-import re as _re
 import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
+from src.pipeline.common.response_validation import (
+    PERMANENT_ERROR_MARKERS,
+    _extract_openai_compatible_text,
+    _looks_like_permanent_error,
+    clean_and_validate,
+)
+
 logger = logging.getLogger(__name__)
 
-# نفس منطق vision_fallback.py بالظبط: أي خطأ "دائم" (كوتة، أو الموديل
-# نفسه اتقفل/اتغير اسمه) يقفل الـ backend فورًا لباقي التشغيلة، بدل ما
-# يعيد المحاولة على كل صفحة في الكتاب لموديل مش هيشتغل تاني أبدًا.
-PERMANENT_ERROR_MARKERS = (
-    "429", "quota", "rate limit", "rate_limit", "ratelimit",
-    "resource_exhausted", "resource exhausted", "insufficient_quota",
-    "billing", "credit balance", "too many requests",
-    "decommissioned", "model_decommissioned", "does not exist",
-    "not found", "not_found", "invalid model", "invalid_request_error",
-    "unknown model", "no longer available", "no longer supported",
-)
+# Ceiling and fallback for the Retry-After hint (see _extract_retry_after).
+_RETRY_AFTER_CEILING_SECONDS = 60
+_DEFAULT_RETRY_AFTER_SECONDS = 5
+
+# Retry-After parsing is the one response helper that genuinely belongs
+# to this stage alone: only the text-correction path treats a 429 as
+# transient and honours the header (the vision path marks the backend
+# dead on the first 429 instead, via PERMANENT_ERROR_MARKERS). Everything
+# else - permanent-error classification, OpenAI-compatible extraction,
+# refusal/reasoning/Arabic validation - is shared with vision_fallback.py
+# from src.pipeline/common/response_validation.py.
 
 
-def _looks_like_permanent_error(exc: Exception) -> bool:
-    text = str(exc).lower()
-    return any(marker in text for marker in PERMANENT_ERROR_MARKERS)
-
-
-# ---------------------------------------------------------------------------
-# RESPONSE CLEANING / VALIDATION
-#
-# Same reasoning and same shape as the block in vision_fallback.py - kept
-# as a separate copy (not imported from there) so this module has no
-# import-time dependency on vision_fallback.py; the two stages are meant
-# to be run/tuned independently (see module docstring above).
-# ---------------------------------------------------------------------------
-
-_THINK_BLOCK_RE = _re.compile(
-    r"<\s*think(?:ing)?\s*>.*?<\s*/\s*think(?:ing)?\s*>",
-    flags=_re.IGNORECASE | _re.DOTALL,
-)
-
-# Phrases a refusal/non-answer tends to contain. Checked against the
-# response with reasoning blocks already stripped out, case-insensitive,
-# substring match. Deliberately broad: a false positive here just means
-# a good correction gets discarded and the raw OCR text is kept instead
-# (safe), while a false negative means a refusal/reasoning trace slips
-# into corrected_text/ as if it were real manuscript text (unsafe) - so
-# this errs toward over-rejecting.
-REFUSAL_MARKERS = (
-    "i can't support this request",
-    "i cannot support this request",
-    "i can't help with that",
-    "i cannot help with that",
-    "i'm sorry, but i can't",
-    "i'm sorry, i can't",
-    "sorry, i can't",
-    "i can't assist",
-    "i cannot assist",
-    "as an ai",
-    "i am unable to",
-    "i'm unable to",
-    "i cannot reproduce",
-    "i can't reproduce",
-    "i cannot provide",
-    "i can't provide",
-    "cannot be transcribed",
-    "can't be transcribed",
-    "too obscured",
-    "too illegible",
-    "unable to transcribe",
-    "i'm not able to",
-    "i am not able to",
-)
-
-# Minimum fraction of letters (of all letters, ignoring digits/punctuation/
-# whitespace) that must fall in the Arabic Unicode block for a response to
-# be accepted as a plausible correction. Lenient on purpose - a corrected
-# page can legitimately carry the occasional Latin digit, footnote
-# marker, or bracketed editorial note - this exists to catch a response
-# that is basically all-English commentary/refusal, not to police mixed-
-# script edge cases.
-MIN_ARABIC_LETTER_RATIO = 0.5
-MIN_ARABIC_LETTER_RATIO_MIN_LETTERS = 6  # skip the ratio check on very
-    # short responses (e.g. a single word) where the ratio is too noisy
-    # to be meaningful either way. A corrected PAGE is normally much
-    # longer than a single OCR line, so in practice this floor rarely
-    # matters here - it's kept only as a defensive minimum.
-
-_ARABIC_CHAR_RE = _re.compile(r"[\u0600-\u06FF\u0750-\u077F]")
-_LETTER_RE = _re.compile(r"[^\W\d_]", flags=_re.UNICODE)
-
-
-def _strip_reasoning_blocks(text: str) -> str:
-    """Remove <think>...</think> / <thinking>...</thinking> blocks. Some
-    backends put reasoning inline in the same content field as the
-    answer instead of a separate field, so this can't be filtered at the
-    API-parameter level for every provider - it has to be stripped from
-    the text itself."""
-    cleaned = _THINK_BLOCK_RE.sub("", text)
-    return cleaned.strip()
-
-
-def _looks_like_refusal(text: str) -> bool:
-    lowered = text.lower()
-    return any(marker in lowered for marker in REFUSAL_MARKERS)
-
-
-def _looks_like_plausible_arabic(text: str) -> bool:
+def _extract_retry_after(exc: Exception) -> Optional[int]:
     """
-    BUG FIX - same root cause and same fix as vision_fallback.py's
-    identical function (see that file's docstring for the real
-    escalations.jsonl example that exposed this: a short, all-Latin
-    response passed validation unconditionally because the ratio check
-    was skipped entirely below MIN_ARABIC_LETTER_RATIO_MIN_LETTERS, with
-    no lower floor at all). A short response now still skips the strict
-    ratio, but must contain at least one Arabic letter.
+    Parse the HTTP `Retry-After` header (seconds form) out of an
+    OpenAI-SDK RateLimitError, or return None when the exception is not
+    a rate-limit response or carries no usable header.
+
+    The OpenAI SDK (3.3.1 in this venv) attaches the provider's httpx
+    Response object as `exc.response` on APIStatusError subclasses, and
+    httpx.Headers is case-insensitive, so 'Retry-After' / 'retry-after'
+    are both readable via .get(). RFC 7231 also allows an HTTP-date form;
+    this venv has no dependency to parse dates, and the Atria API returns
+    the integer-seconds form, so a non-integer value falls back to a
+    fixed conservative delay rather than being treated as "no hint".
+    Values are clamped to a sane ceiling so a hostile/malformed huge
+    value cannot stall the run indefinitely.
     """
-    letters = _LETTER_RE.findall(text)
-    if not letters:
-        return False
-    arabic_letters = sum(1 for ch in letters if _ARABIC_CHAR_RE.match(ch))
-    if len(letters) < MIN_ARABIC_LETTER_RATIO_MIN_LETTERS:
-        return arabic_letters > 0
-    return (arabic_letters / len(letters)) >= MIN_ARABIC_LETTER_RATIO
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    if getattr(response, "status_code", None) != 429:
+        return None
+
+    raw = headers.get("Retry-After") or headers.get("retry-after")
+    if raw is None:
+        return _DEFAULT_RETRY_AFTER_SECONDS
+    try:
+        seconds = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return _DEFAULT_RETRY_AFTER_SECONDS
+    if seconds < 0:
+        return _DEFAULT_RETRY_AFTER_SECONDS
+    return min(seconds, _RETRY_AFTER_CEILING_SECONDS)
 
 
 def clean_and_validate_correction(raw_text: str) -> Optional[str]:
@@ -191,26 +128,14 @@ def clean_and_validate_correction(raw_text: str) -> Optional[str]:
         exception (try the next backend / fall back to the original OCR
         text via fallback_text), never write it into corrected_text/ as
         a successful correction.
+
+    Thin wrapper over the shared clean_and_validate(): the correction
+    prompt has no ILLEGIBLE marker (it is text-in/text-out, not an image
+    transcription), so the marker argument is left unset. Kept as a
+    named function rather than aliasing the shared one, because the
+    callers and test suite refer to this stage-specific name.
     """
-    if not raw_text:
-        return None
-
-    cleaned = _strip_reasoning_blocks(raw_text)
-
-    # Also strip a lone leading/trailing pair of quotation marks some
-    # models wrap the answer in.
-    cleaned = cleaned.strip().strip('"').strip("'").strip()
-
-    if not cleaned:
-        return None
-
-    if _looks_like_refusal(cleaned):
-        return None
-
-    if not _looks_like_plausible_arabic(cleaned):
-        return None
-
-    return cleaned
+    return clean_and_validate(raw_text)
 
 
 class TextBackend(ABC):
@@ -260,12 +185,135 @@ class GroqTextBackend(TextBackend):
             messages=[{"role": "user", "content": prompt}],
             max_tokens=4000,
         )
-        return response.choices[0].message.content.strip()
+        return _extract_openai_compatible_text(response, self.name)
+
+
+class AtriaTextBackend(TextBackend):
+    """
+    Atria (api.atria-asi.ai) text-only backend for the correction stage.
+
+    WHY THIS BACKEND EXISTS (see specs/005-atria-text-correction-backend):
+    Atria-Dawn-Preview is a TEXT-ONLY model with a large shared context
+    window (256k input+output combined, per the opencode provider config
+    D3 declaration). It is OpenAI-compatible (chat.completions over
+    https://api.atria-asi.ai/v1), so it slots into this engine exactly
+    like GroqTextBackend - same SDK, same response shape, same
+    clean_and_validate_correction() gate downstream. It is a TEXT
+    correction backend only: it must NEVER be given image input (the
+    Atria API rejects multimodal params with HTTP 400 - see the opencode
+    plugin guard B4/B5 for the tooling-side enforcement of the same
+    constraint, and FR-002 below for this side).
+
+    CASE-SENSITIVITY: the model ID is passed through EXACTLY as
+    configured. The Atria API is case-sensitive on the model name; the
+    tiniest deviation (e.g. "atria-dawn-preview") is a 404-style
+    permanent error, not a retryable one. See _attempt_on_slot()'s use
+    of _looks_like_permanent_error() - "not found" / "does not exist"
+    markers already classify those correctly, so a misconfigured ID
+    removes this backend from rotation after ONE failure instead of
+    burning the whole shared budget retrying.
+
+    RATE LIMITS (shared RPM): the Atria account has a shared
+    requests-per-minute quota across models. A 429 therefore does NOT
+    mean "this backend is dead for the run" the way a decommissioned
+    model does - it means "wait, then try again". This backend honors
+    the HTTP `Retry-After` header on a 429 (sleeping that many seconds
+    before ONE retry on the same backend), which is the documented
+    behavior the engine's _attempt_on_slot() does NOT do on its own
+    (it treats any 429 as permanent via PERMANENT_ERROR_MARKERS). The
+    retry is bounded to one so a persistently-throttled backend still
+    falls through to the next backend in rotation instead of stalling
+    the run.
+    """
+
+    name = "atria"
+
+    # Exact, case-sensitive model ID. The Atria API rejects a wrong-case
+    # variant; settings.yaml's backends.atria.model MUST match this.
+    DEFAULT_MODEL = "Atria-Dawn-Preview"
+
+    BASE_URL = "https://api.atria-asi.ai/v1"
+
+    # Context budget (D3, declared in the opencode provider config):
+    # 256,000 tokens SHARED between input and output; output limit
+    # 65,536. We reserve output headroom so a correction response can
+    # never overflow the shared window and truncate mid-token.
+    CONTEXT_TOKENS = 256_000
+    OUTPUT_TOKENS = 65_536
+
+    # Per-request max_tokens. MEASURED on the live Atria API: the model
+    # emits a separate reasoning_content that counts against this budget
+    # (observed ~200-1000 reasoning tokens for a one-line correction),
+    # so a tight cap intermittently truncates the response to
+    # finish_reason='length' with content=None. 8000 leaves comfortable
+    # room for reasoning + a full corrected page, and is still a small
+    # fraction of the 65,536 output reserve.
+    REQUEST_MAX_TOKENS = 8000
+
+    # One retry after sleeping Retry-After seconds; a second consecutive
+    # 429 gives up and lets the rotation move to the next backend.
+    MAX_RATE_LIMIT_RETRIES = 1
+
+    def __init__(self, api_key: Optional[str] = None,
+                 model: str = DEFAULT_MODEL):
+        from openai import OpenAI  # pip install openai --break-system-packages
+        self.client = OpenAI(api_key=api_key, base_url=self.BASE_URL)
+        self.model = model
+
+    def _budget_ok(self, prompt: str) -> bool:
+        """Rough pre-flight check that the prompt leaves room for a
+        response inside the shared 256k window (D3: 256,000 tokens total,
+        input + output combined). Uses a conservative ~4 chars/token
+        heuristic (no tokenizer dependency in the venv); the goal is only
+        to refuse an obviously-oversized page before paying for the call,
+        not to be exact. Invariant:
+
+            est_prompt_tokens + REQUEST_MAX_TOKENS  <  CONTEXT_TOKENS
+        """
+        est_prompt_tokens = max(1, len(prompt) // 4)
+        return (est_prompt_tokens + self.REQUEST_MAX_TOKENS
+                < self.CONTEXT_TOKENS)
+
+    def correct(self, prompt: str) -> str:
+        if not self._budget_ok(prompt):
+            raise ValueError(
+                f"atria: prompt (~{len(prompt) // 4} tokens) plus the "
+                f"{self.REQUEST_MAX_TOKENS}-token request cap would not fit "
+                f"the shared {self.CONTEXT_TOKENS}-token context window "
+                f"(D3). Refusing to send an oversized page."
+            )
+
+        rate_limit_retries = 0
+        while True:
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=self.REQUEST_MAX_TOKENS,
+                )
+                return _extract_openai_compatible_text(
+                    response, self.name,
+                )
+            except Exception as e:
+                retry_after = _extract_retry_after(e)
+                if (retry_after is not None
+                        and rate_limit_retries < self.MAX_RATE_LIMIT_RETRIES):
+                    rate_limit_retries += 1
+                    logger.warning(
+                        f"Text-correction backend '{self.name}' rate-limited "
+                        f"(429) - honoring Retry-After: {retry_after}s, then "
+                        f"one retry (retry {rate_limit_retries}/"
+                        f"{self.MAX_RATE_LIMIT_RETRIES})."
+                    )
+                    time.sleep(retry_after)
+                    continue
+                raise
 
 
 BACKEND_REGISTRY = {
     "gemini": GeminiTextBackend,
     "groq": GroqTextBackend,
+    "atria": AtriaTextBackend,
 }
 
 

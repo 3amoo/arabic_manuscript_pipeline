@@ -37,6 +37,22 @@ logger = logging.getLogger(__name__)
 
 SEPARATOR = "\n\n--- نهاية الصفحة ---\n\n"
 
+# Marker for a line that escalated to vision but NO backend answered, so
+# the line in the saved text is the ORIGINAL low-confidence PaddleOCR
+# guess - unverified by anything. Written inline at the exact line, not
+# as a page footnote, because a page can carry several unresolved lines
+# and a footnote at the bottom loses track of which line it refers to.
+#
+# The marker is one constant, defined once here, so `grep` across the
+# whole corpus finds every blind spot later. It starts with '#' on
+# purpose: normalize_text() in evaluate_cer.py drops lines starting with
+# '#', so the marker never pollutes the CER/WER/diacritics benchmark
+# (the line's own text is still scored; only the marker line is skipped).
+#
+# Arabic wording chosen to be unambiguous to a human reviewer and to
+# contain no word that could appear in genuine manuscript text.
+UNRESOLVED_MARKER = "# ⟦⚠ غير محقق: فشل التصعيد البصري⟧"
+
 
 def _extract_text_body(content: str) -> str:
     """Strip header lines and following blank lines from a raw_text page file."""
@@ -57,6 +73,16 @@ class OutputGenerator:
         # كل ملفات الصفحات من القرص في كل مرة (ده كان هيبقى O(n^2) IO
         # على كتاب فيه مئات الصفحات).
         self._page_texts: Dict[str, Dict[int, str]] = {}
+        # Pages recovered from a PREVIOUS run's disk output, loaded once
+        # per document (see _rewrite_full_manuscript). Kept separate from
+        # _page_texts so the current run always wins on overlap without
+        # having to re-read the disk files to know what's already there.
+        self._prior_run_pages: Dict[str, Dict[int, str]] = {}
+        self._disk_scan_done: set = set()
+        # Document keys whose escalation log has already been rotated in
+        # this process (see save_escalations) - so one run archives the
+        # previous log exactly once, not once per page.
+        self._rotated: set = set()
         logger.info("OutputGenerator initialized")
 
     def _doc_dirs(self, document_name: str):
@@ -77,6 +103,24 @@ class OutputGenerator:
 
         page_num = page.get('page_num', 0)
         text = page.get('text', '')
+        prose_text = page.get('prose_text') or ''
+        if prose_text:
+            full_body = f"{text}\n\n--- الشرح والحاشية ---\n\n{prose_text}" if text else prose_text
+        else:
+            full_body = text
+
+        # Marginalia (NEXT_DEVELOPMENT_PLAN Group C): scribal margin
+        # notes are preserved on their own channel rather than
+        # interleaved into the verse stream or discarded. The main
+        # manuscript text never contains this section, so a downstream
+        # consumer that only wants the verses can ignore it.
+        margin_text = page.get('margin_text') or ''
+        if margin_text:
+            full_body = (
+                f"{full_body}\n\n--- الهامش ---\n\n{margin_text}"
+                if full_body else margin_text
+            )
+
         method = page.get('ocr_method', 'unknown')
 
         header_lines = [f"# Page {page_num}", f"# OCR Method: {method}"]
@@ -91,31 +135,41 @@ class OutputGenerator:
 
         filename = raw_dir / f'page_{page_num:03d}.txt'
         filename.write_text(
-            f"{chr(10).join(header_lines)}\n\n{text}",
+            f"{chr(10).join(header_lines)}\n\n{full_body}",
             encoding='utf-8',
         )
 
-        self._page_texts.setdefault(document_name, {})[page_num] = text
+        self._page_texts.setdefault(document_name, {})[page_num] = full_body
         self._rewrite_full_manuscript(document_name, doc_dir)
 
         logger.info(f"Saved page {page_num} -> {filename}")
         return doc_dir
 
     def _rewrite_full_manuscript(self, document_name: str, doc_dir: Path) -> None:
-        raw_dir = doc_dir / 'raw_text'
-        disk_pages = {}
-
-        if raw_dir.is_dir():
-            for f in raw_dir.glob('page_*.txt'):
-                m = re.match(r'^page_(\d{3})\.txt$', f.name)
-                if not m:
-                    continue
-                page_num = int(m.group(1))
-                content = f.read_text(encoding='utf-8')
-                disk_pages[page_num] = _extract_text_body(content)
+        # The disk scan is the only O(pages) step in this function, and
+        # it used to run on EVERY save_page() call - so a 300-page book
+        # did ~45,000 file reads as the run progressed. It only exists to
+        # pick up pages a previous run wrote before this process started;
+        # once per document is enough, since every page saved after that
+        # is already in _page_texts.
+        if document_name not in self._disk_scan_done:
+            self._disk_scan_done.add(document_name)
+            raw_dir = doc_dir / 'raw_text'
+            if raw_dir.is_dir():
+                for f in raw_dir.glob('page_*.txt'):
+                    m = re.match(r'^page_(\d{3})\.txt$', f.name)
+                    if not m:
+                        continue
+                    page_num = int(m.group(1))
+                    content = f.read_text(encoding='utf-8')
+                    self._prior_run_pages.setdefault(
+                        document_name, {}
+                    )[page_num] = _extract_text_body(content)
 
         current_run = self._page_texts.get(document_name, {})
-        merged = {**disk_pages, **current_run}
+        # Current run wins on overlap: a re-OCR'd page replaces the
+        # earlier run's version of the same page.
+        merged = {**self._prior_run_pages.get(document_name, {}), **current_run}
 
         if not merged:
             logger.warning(f"No pages found for {document_name} — "
@@ -180,6 +234,29 @@ Appends every real vision-fallback attempt for this page to
         review_dir.mkdir(parents=True, exist_ok=True)
 
         log_path = review_dir / 'escalations.jsonl'
+
+        # Per-run rotation (spec 017): the log used to be opened in
+        # append mode unconditionally, so every pipeline run - including
+        # partial smoke runs over a handful of pages - accumulated into
+        # the same file forever. Measured: the shipped corpus's log held
+        # 245 entries from >=10 separate runs, of which exactly 0
+        # described text present in the shipped output; the remaining
+        # entries were discarded intermediate states (mostly the Imru'
+        # al-Qais refrain the hallucination tracker exists to reject).
+        # A review log that mostly describes text that no longer exists
+        # is worse than no log, so the first write of each run archives
+        # the previous file to escalations.prev.jsonl and starts clean.
+        key = ('escalations', document_name)
+        if key not in self._rotated:
+            self._rotated.add(key)
+            if log_path.exists():
+                prev_path = review_dir / 'escalations.prev.jsonl'
+                log_path.replace(prev_path)
+                logger.info(
+                    f"Rotated previous escalation log -> {prev_path} "
+                    f"(a new run starts a fresh log; the old one is kept "
+                    f"for reference, not appended to)."
+                )
 
         with log_path.open('a', encoding='utf-8') as f:
             for item in escalations:

@@ -1,55 +1,151 @@
-# Memory — سياق المشروع (لصقه في جلسات Claude الجديدة)
+# Memory — Arabic Manuscript OCR Pipeline (سياق المشروع)
 
-## Purpose & context
+> **This file carries only the identity, the key numbers, and the hard rules.**
+> **`docs/AGENTS.md` is the governing operating contract** — read it before any change.
+> If this file and AGENTS.md disagree, **AGENTS.md + the actual code win**.
 
-3amoo is building an Arabic manuscript OCR pipeline to process scanned Arabic books, with the current test case being "عمود النسب" (a scanned Arabic poetry/genealogy book). The project runs on a GTX 1650 4GB GPU (memory-constrained environment). The goal is a reliable, resumable pipeline that handles classical Arabic text accurately.
+## Identity & goal
 
-The project is FLAT layout: ALL modules live at the project root beside main.py (input_handler.py, ocr_engine.py, output_generator.py, page_layout_detector.py, segment_text_rows.py, preprocessing.py, vision_fallback.py, ocr_cache.py, pdf_text_extractor.py, ...). The src/ directory was deleted (its 5 files were byte-identical duplicates) and the sys.path.insert in main.py was removed. Do NOT recreate src/ or re-add sys.path hacks. Configuration lives in settings.yaml and prompts.yaml at the project root (config/ is gone).
+An OCR pipeline that converts scanned **Arabic manuscripts** (fully vocalized) into
+structured digital text (poetry/prose/titles), preserving **diacritics (التشكيل)** as
+far as possible. Current test case: **"عمود النسب"** (a scanned Arabic
+poetry/genealogy book, 113 pages).
 
-The project now has two authoritative context files:
-- AGENTS.md — the operating contract for agents: sources of truth, current state with STATUS markers (implemented/partial/planned/blocked/prohibited), non-negotiable rules (85% text-layer rule, diacritic protection, Faithful Reconstruction, confidence bands ≥85/65-84.99/<65, Vision-not-authoritative), Definition of Done, Change Classification, and roadmap. Read it before any change.
-- baseline/ — immutable quality snapshot: BASELINE.md report, reference output (output_as_was/), per-page metrics, and a documented sample run on pages 24-26. Used ONLY for comparisons; never edit it.
+The core concept: PDF→text is **Reverse Engineering**. A page with a sane `ToUnicode`
+map is decoded directly (faster and more accurate than any OCR); image-only pages must
+be **rendered → preprocessed → layout-analyzed → read**. The classic project failure is
+jumping straight to OCR while skipping Layout Analysis and adaptive preprocessing —
+the output is "letter soup". This project does not do that.
 
-3amoo maintains a CHANGELOG.md as a living context document — concise one-line-per-change entries with a Backlog section — intended to be pasted into new Claude conversations to provide full context without re-explanation. NOTE: CHANGELOG is historical narrative, not current truth (AGENTS.md + code + settings.yaml are the truth).
+**Governing principle: OCR ≠ Editing.** The system recovers what *is on the page*,
+not what it believes is "correct".
 
-## Current state
+## The key numbers (FINAL reference — program closed 2026-09-18)
 
-- PDF direct text extraction (pdf_text_extractor.py): Per-page usability filtering (min 20 chars, ≥85% usable Arabic/Latin ratio, U+FFFD rejection >2%) to skip OCR for pages with a usable embedded text layer. No pages in "عمود النسب" currently qualify (fully scanned) but it's ready.
-- Batched OCR (ocr_engine.py, main.py): two-pass structure — collect line crops, then one extract_segments_batch() call per region. segment_batch_size (default 16) configurable in settings.yaml.
-- SQLite caching (ocr_cache.py): Hash-keyed on image bytes + shape + dtype + recognition model name. Vision fallback and text correction results are intentionally not cached.
-- A baseline run on pages 24-26 was captured (exit 0, ~121s processing / ~135s wall): OCR cache 100% hits, 32/3000 vision calls used, 1-5 vision escalations per run, all pages detected as verse (poetry structure preserved).
+> **Every number below is a DISTANCE TO A WORKING BENCHMARK** (Constitution §VI),
+> not an absolute truth. All are **deterministic and reproducible**:
+> `align_ground_truth.py` → `evaluate_cer.py --alignment`.
+> **The program is closed**: every pipeline component has been measured (specs 005–017).
+> Authoritative final report: `data/evaluation_reports/019-escalation-pass/quality_report.{txt,json}`.
+> (escalation pass 2026-09-20, spec 020: 25.9% -> 25.0%; the retired direct_text
+> reproducible without the retired embedded-text fast path.)
 
-- MITIGATED RELIABILITY ISSUE (fixed 2026-09-06): vision fallback used to hallucinate plausible classical Arabic verse for low-confidence / near-blank crops (a kashida-only crop "ـ" returned the Imru' al-Qais Mu'allaqah opening line on pages 20-27, visible in stale review/escalations.jsonl). Now mitigated in main.py by two gates: `_should_escalate_line()` (noise-only PaddleOCR reads never reach vision) and `_maybe_escalate_line()` (repeated_verbatim texts are recorded in escalations but never replace OCR evidence). Residual risk: non-repeated hallucinations on weak-but-Arabic crops still land in output and are only visible in escalations.jsonl for review; vision remains NON-DETERMINISTIC between runs and several backends are frequently dead on quota (gemini, gemini_2, openrouter = 429). Only cache-deterministic PaddleOCR lines should ever be compared across runs.
+- **CER 25.0% / WER 59.9% / diacritic recovery 81.3%** across **45 evaluated
+  pages** (ص23..ص67: 26 clean / 17 low-confidence / 2 recovered; 620 GT verses).
+  The preceding spec-006 reference (CER 25.0% / 43 pages) is preserved in
+  `data/evaluation_reports/006/`; the difference is *honesty, not regression* (pages 59/67
+  were previously sliced out while genuinely bad — AGENTS.md §12).
+- **Error budget**: 66% character errors (≈half diacritics). NOTE: spec 008's "21% extra
+  lines / 13% dropped verses" does NOT reproduce — net is **−5 lines across 620 verses**;
+  the damage is almost entirely *within-line* character corruption, ~40% of it on pages
+  scored `matched`. So verse merge/split repair has nothing to fix.
+- **117 suspected-hallucination verses** (diagnostic flag only; NOT excluded from CER).
+- Ground truth is **COMPLETE**: 620 numbered verses in
+  `data/ground_truth/عمود النسب/عمود_النسب.clean.md`, covering **pages 23–67 only"
+  (the first 22 pages are prose front matter; pages 68+ are out of scope).
+- Worst pages: ص65 75.0%, ص59 64.9%, ص60 54.1%. Best: ص55 10.4%, ص24 10.6%, ص40 11.2%.
+- Atria-Dawn-Preview (text-correction backend, spec 005) is **non-functional on real
+  pages**: `reasoning_content` expands to fill any `max_tokens`. Fails safely to `raw`.
+- **Vision escalation: WORKS but quota-starved (spec 018 CORRECTS spec 017)**
+- **لمعة النسب has a broken ToUnicode CMap (spec 021)**: every corrupted word in the
+  embedded text layer is an exact anagram of the truth (`اهلل`↔`الله`, `احلمد`↔`الحمد`) —
+  the lam/alif ligature components are emitted in the wrong order. Poppler reproduces it,
+  so it lives in the PDF, and the layer carries zero diacritics. A universal geometric
+  fix was measured and REJECTED (it breaks the dense genealogy pages), but a guarded
+  repair — 83 verified corrections + a vocabulary-guarded adjacent swap — is strictly
+  safe (8 pages improved, 0 worsened). Shipped as `src/pipeline/ingestion/tounicode_repair.py`;
+  the readable prose is at `data/output/لمعة النسب/repaired_text/`. **This does NOT un-retire
+  direct_text**: the corruption touches only prose (0/83 shapes appear in verse lines),
+  so verse scoring is unaffected and the repaired text is a cross-check, not an OCR
+  replacement. Building لمعة GT still needs a human reader (the text has no digital
+  reference and its verses are unnumbered).. Spec 017
+  measured +0.00pp only because every backend was dead. With gemini alive it fired 8
+  accepted escalations and improved CER on genuinely garbled lines (p27 −3.0pp, p29 −5.4pp;
+  `وواخَوا أث مِّىالحُمرإذا` ← `واخْتَلَفُوا أَنْ سِوَى الخُمس`). The blocker is the **gemini free
+tier (20 calls/day)** — it dies mid-run over a 10-page sample. **457 eligible lines** sit
+below threshold awaiting paid keys.
 
-- Known gap (fixed): binarization used Otsu in 3 places — NOW unified as adaptiveThreshold (block 51, Gaussian) in `preprocessing.adaptive_binarize`/`adaptive_binarize_gray`, used by layout/rowseg/preprocessing (see AGENTS.md §4.2; layout returns 0/255, rowseg returns 0/1).
+**Vision backend health (probed live 2026-09-20 — see `docs/backend_health_table.md`,
+re-run with `check_vision_health.py`):** only Gemini actually reads the image.
+Every other configured backend returned HTTP 200 + fluent, plausible Arabic
+while being **unable to see the image at all** — proven by a blank-white
+control image and a nonexistent image URL, both answered confidently:
+  - **Groq**: catalog has zero vision ids; `qwen/qwen3.8-27b` is text-only and
+    hallucinates. Removed from the vision rotation (kept for text_correction).
+  - **Cohere**: both vision models are blind at both API versions.
+  - **GitHub Models**: service retiring (HTTP 410 retirement_brownout).
+  - **OpenRouter**: 0 credits; free-tier prompt cap (1360 tokens) is smaller
+    than one line-crop image.
+  - **Sovereign**: both keys invalid (401).
+A backend that "works" (200 + fluent Arabic) is NOT evidence of vision —
+only the blank control distinguishes a vision model from a confident text
+model pattern-completing off the prompt.
 
-- flag_suspicious_words.py / morphological_verifier.py: **WORKING** (REVIEW_ONLY — camel-tools 1.6.0 + morphology-db-msa-r13 installed 2026-09-06; verified 89/394 words flagged on pages 24-26). surya_line_detector.py: **surya-ocr now INSTALLED (0.22.1, verified `available=True`, ~20 bands on a real page-24 crop)** but deliberately NOT enabled — `layout_detection.line_detector` is unset in settings.yaml, so the classical row detector still runs; enabling it = OCR_BEHAVIOR and waits for a CER/WER baseline (§4.12). There is no formal test suite configured (unit tests exist under tests/); verification = py_compile + small-range run + comparing against baseline/.
+## The hard rules (non-negotiable — details in AGENTS.md §4)
 
-## On the horizon
+1. **Faithful Reconstruction** — never rewrite text at the verse/paragraph level with an
+   LLM (no spelling "correction", no punctuation edits, no invented diacritics). Only
+   **token-level** verification (word image + candidates → vision model) is allowed.
+2. **Never overwrite raw evidence** — `raw_text/page_NNN.txt` is the immutable evidence
+   layer. Any improved output goes to a **separate** layer (`corrected_text/`).
+3. **85% text-layer rule** — per page: usable-char ratio `< 0.85`, `< 20` chars, or
+   `U+FFFD > 2%` → the text layer is rejected and the page falls to OCR. No approximate accepts.
+4. **Vision output is never authoritative** — escalation is gated (noise-only crops
+   never reach vision; `repeated_verbatim` and OCR-echo are rejected); only
+   token-level acceptance.
+5. **Measurement is mandatory** — any change touching OCR/preprocessing requires
+   CER/WER before and after (§4.12). "Looks better" is not evidence.
 
-- DONE (2026-09-06): fixing vision-fallback hallucination — gate escalation on crop quality (noise-only/near-blank crops never reach vision; repeated_verbatim texts never replace OCR evidence), implemented in `_should_escalate_line` + `_maybe_escalate_line`, centered in `_evaluate_escalation` (one acceptance policy). Also added `_is_repetitive_garble` in ocr_engine.py (single/two-letter repetition like `شسسسسش` now blanked via cache reconciliation; corpus scan: 1 hit, 0 false positives). CER/WER machinery now exists (evaluate_cer.py, jiwer 4.0.0 in project venv) but the manual ground-truth dataset is EMPTY — this session's model has no image input, so GT must come from a vision-capable agent or manual entry.
-- DONE (2026-09-06): surya-ocr 0.22.1 installed in the project venv — unblocks the Phase-2 line-detection path. It downgraded pillow→10.4.0, opencv-python-headless→4.11.0.86, openai→2.54.0; all openai/`chat.completions` usage re-verified and a full 24–26 run stayed exit 0 with identical cached lines. Enabled only by setting `layout_detection.line_detector: "surya"` (scaffold added, commented out).
-- Adaptive binarization (Otsu → adaptiveThreshold, unified) still awaiting a CER/WER baseline; the harness is ready for it once GT exists.
-- DONE (2026-09-06): camel-tools 1.6.0 + morphology-db-msa-r13 installed (REVIEW-only verifier now runs: `flag_suspicious_words.py`; token-level vision integration into main.py still pending). Surya line-detection path installed & verified but off pending CER measurement.
-- DONE (2026-09-06): GT waiting-room for the CER/WER harness — `bootstrap_ground_truth.py` renders each reference page to `ground_truth/<doc>/rendered/page_NNN.png` at 300 DPI and drops a `# GT-PENDING` placeholder `page_NNN.txt`; `evaluate_cer.py` gained `has_usable_gt_content()` so placeholder-only GT still exits 2 (no fake measurement). Pages 24-26 currently rendered+placeholder-only; transcription still needs a vision-capable agent (this session's model has no image input).
-- Generalization to other Arabic books beyond "عمود النسب".
+## Current structure (as of the `src/pipeline/` refactor, commit 2587731)
 
-## Key learnings & principles
+The project is a **package**, NOT flat. `main.py` imports `src.pipeline.*`:
 
-- Vision models will confidently hallucinate coherent classical Arabic for ambiguous/near-blank crops — escalation MUST be gated on crop quality; Vision output is never authoritative on its own (token-level acceptance only).
-- The cache key must include the recognition model name to stay correct when models are swapped.
-- Layout is FLAT; all imports resolve at root without path hacks — never re-introduce src/ or sys.path manipulation.
-- Functional tests with stubbed dependencies (e.g., stubbed PaddleOCR) are preferred over syntax-only checks.
-- Always verify config path resolution explicitly (review_manuscript.py historically pointed at nonexistent config/ and failed silently).
-- For before/after comparisons, only trust cache-deterministic OCR output; vision-escalated lines are non-deterministic and quota-dependent.
-- baseline/ is immutable evidence; CHANGELOG.md is narrative, not current state.
+```
+src/pipeline/ingestion/        input_handler, pdf_text_extractor
+src/pipeline/preprocessing/    preprocessing, page_layout_detector, segment_text_rows
+src/pipeline/ocr/              ocr_engine, vision_fallback, surya_line_detector, ...
+src/pipeline/output/           output_generator, review_manuscript
+src/pipeline/correction/       text_correction_engine, morphological_verifier
+src/pipeline/evaluation/       align_ground_truth, evaluate_cer
+config/                        settings.yaml, prompts.yaml   (config/ EXISTS — do not assume it is gone)
+data/input/  data/ground_truth/  data/output/  data/evaluation_reports/
+```
 
-## Tools & resources
+Poetry output format: `الشطر الأيمن ... الشطر الايسر` — do not change it.
 
-- OCR: PaddleOCR (primary), vision model fallback for low-confidence segments
-- PDF: PyMuPDF (page.get_text())
-- Caching: SQLite (ocr_cache.py → output/.cache/ocr_cache.sqlite3)
-- GPU: GTX 1650 4GB (batch=16; GPU-only paddle — no CPU fallback)
-- Config: settings.yaml, prompts.yaml at the project root (config/ deleted)
-- Context continuity: AGENTS.md + baseline/BASELINE.md + CHANGELOG.md (Backlog) pasted into new sessions
-- Environment installs only inside the project venv (`myenv/bin/python -m pip install ...` — `myenv/bin/pip` had a broken sibling-venv shebang, fixed 2026-09-06). camel-tools + morphology-db-msa-r13 and surya-ocr are installed (camel = REVIEW-only tool, ready; surya = line-detection switch, installed but OFF). Nothing major is left to install for the current roadmap.
+## Environment & verification
+
+- **Python: `myenv/bin/python` = 3.11.16 only** (system Python 3.14 is forbidden).
+  Install with `myenv/bin/python -m pip install ...` (NOT `myenv/bin/pip`).
+- Verification commands (full list in AGENTS.md §11):
+  ```bash
+  myenv/bin/python main.py --start 24 --end 26
+  myenv/bin/python -m unittest tests.test_gt_alignment tests.test_diacritic_metrics tests.test_cer_normalization tests.test_escalation_policy tests.test_output_generator tests.test_atria_text_backend tests.test_benchmark_cer_wer tests.test_clean_ground_truth
+  myenv/bin/python -m src.pipeline.evaluation.evaluate_cer --document "عمود النسب نسخة 2" --alignment "data/evaluation_reports/008/alignment.json" --report-dir "data/evaluation_reports/019-escalation-pass" --diacritics-metrics
+  ```
+  Expected: **142 tests OK (skipped=2)**, smoke **exit 0**, and the evidence invariant —
+  sha256 over every `.txt` under `data/output` + `data/ground_truth` = **`91b3f61101170b233619`**.
+- Hardware: GTX 1650 4GB VRAM → `segment_batch_size = 16`. Do not raise without a VRAM test.
+- **No commits / no pushes** without an explicit request. `.env` holds real API keys —
+  never print, read, or diff it.
+
+## Notes that prevent rediscovery
+
+- `baseline/` **does not exist** in the repo (verified directly, spec 006) despite older
+  references to it as an "immutable snapshot". The real reference is the reproducible
+  measurement above.
+- `docs/PROJECT_SUMMARY.md` is a **historical 2026-09-06 snapshot** (describes the old
+  flat layout) — read with caution; AGENTS.md is current.
+- `.claude/skills/clean-code-guard` is a **symlink** to `.agents/skills/clean-code-guard`
+  (an intentional install link — not a duplicate; do not delete).
+- `data/archive/debug_page107_resolved.zip` is kept intentionally as historical evidence.
+- **Closed accuracy lines — do NOT re-attempt without new evidence** (AGENTS.md §12, §13):
+  fine-tuning the recognizer (spec 013/014: works for letters, **diacritics never move**,
+  even with a diacritic-weighted CTC loss — it's a *position* problem, not weighting);
+  morphological diacritic repair (spec 016: net-negative in all 4 variants — the scribe leaves
+  function words bare while `calima-msa-r13` fully vocalizes them, so collisions are
+  unique+certain+wrong); surya line segmentation (spec 009: −0.6pp noise); 300 DPI
+  (spec 010: −1.5pp but p≈0.16, CI crosses zero); non-Paddle VLMs (spec 012: strip diacritics).
+- `review/escalations.jsonl` may hold a **stale 245-entry log** from ≥10 smoke runs
+  (0/245 of its texts are in the shipped product). Left intentionally — it is an audit trail;
+  the next real run rotates it to `escalations.prev.jsonl` (spec 017). Don't hand-edit it.

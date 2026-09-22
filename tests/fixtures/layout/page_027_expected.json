@@ -1,0 +1,75 @@
+{
+  "page": 27,
+  "source_pdf": "data/input/عمود النسب نسخة 2.pdf",
+  "dpi": 200,
+  "num_boxes": 452,
+  "content_bbox": [
+    108,
+    128,
+    3118,
+    4378
+  ],
+  "note": "NEAR-MISS, NOT an absence-of-detection case. A separator rule WAS detected at y=3421 (has_separator=True), but no horizontal gap lies within match_tolerance of it (nearest gap ends at y=3268, 153 px away vs tolerance 127), so score=1 and the page is NOT cut (detected=False, footnote_y=y2=4378). This is the real-manuscript guard for the review's risk #1/#2 (separator-like stroke near the bottom must not, on its own, trigger a cut).",
+  "boundaries": {
+    "score": 1,
+    "detected": false,
+    "footnote_y": 4378,
+    "candidate_y": 3421,
+    "has_gap": false,
+    "gap_y": null,
+    "has_separator": true,
+    "separator_y": 3421,
+    "has_smaller_text": false,
+    "match_tolerance": 127
+  },
+  "gaps": [
+    {
+      "start_y": 2560,
+      "end_y": 2573,
+      "height": 13
+    },
+    {
+      "start_y": 2593,
+      "end_y": 2613,
+      "height": 20
+    },
+    {
+      "start_y": 2782,
+      "end_y": 2817,
+      "height": 35
+    },
+    {
+      "start_y": 3230,
+      "end_y": 3242,
+      "height": 12
+    },
+    {
+      "start_y": 3981,
+      "end_y": 3996,
+      "height": 15
+    },
+    {
+      "start_y": 4114,
+      "end_y": 4126,
+      "height": 12
+    },
+    {
+      "start_y": 4129,
+      "end_y": 4151,
+      "height": 22
+    },
+    {
+      "start_y": 4195,
+      "end_y": 4217,
+      "height": 22
+    },
+    {
+      "start_y": 4310,
+      "end_y": 4361,
+      "height": 51
+    }
+  ],
+  "separators": [
+    3421
+  ]
+}

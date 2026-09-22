@@ -37,7 +37,6 @@ os.environ.setdefault("FLAGS_allocator_strategy", "auto_growth")
 import numpy as np
 from typing import Dict, Any, Optional
 import logging
-from paddleocr import PaddleOCR
 
 from src.pipeline.ocr.ocr_cache import OCRCache
 
