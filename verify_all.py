@@ -63,6 +63,7 @@ TEST_MODULES = [
     "tests.test_noise_crop_gate",
     "tests.test_vote_correct_names",
     "tests.test_genealogy_crossref",
+    "tests.test_restore_tashkeel",
     "tests.test_ingest_reviewed_corrections",
 ]
 SMOKE_ARGS = ["--start", "24", "--end", "26"]

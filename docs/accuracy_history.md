@@ -197,6 +197,56 @@ skeleton correction lands (so it can fix base letters) or Group B
 provides an independent tashkeel correctness check to validate the
 majority form against.
 
+## 2026-09-21 — Tashkeel restoration: measured, and the off-the-shelf model FAILS the genre gate
+
+`scripts/restore_tashkeel.py` (CLOSURE_PLAN Group B) implements the plan
+exactly as specified: CAMeL Tools' MLE disambiguator over calima-msa-r13,
+fully offline (no API dependency), and - the critical conservation rule -
+it **never overwrites a token that already carries marks**; it only fills
+tokens PaddleOCR left bare, which is precisely the "dropped mark" failure
+mode that is 57% of this corpus's diacritic errors. 54% of tokens were
+left alone, 25% (4,358) had gaps filled, 20% (3,475) the model itself
+left bare - mostly proper names, an MSA-training artifact.
+
+**Two measurements, and they disagree. That disagreement is the finding.**
+
+1. **Against the letter-accurate gold set (the project's standing
+   metric):** diacritics accuracy 83.1% -> **86.7%** (+3.6 points),
+   CER/WER unchanged at 23.7/59.8. The conservation rule held - no base
+   letters were touched. The per-word census shows *missing* marks
+   13 -> 3, but *wrong* 148 -> 156 and *extra* 5 -> 16; net *correct*
+   moved only 60 -> 62.
+
+2. **Against the genealogy vault's own diacritized transcription of this
+   exact poem** (a much stronger ground truth, discovered while building
+   Group D): of the 1,624 filled tokens that have a counterpart in the
+   vault, only **13% match the vault's mark pattern; 87% differ.**
+
+The aggregate number improved because the metric is a **density ratio**
+(marks per base letter), which counts marks without asking whether they
+are right. The vault comparison is the one that answers the question the
+plan's step-6 gate actually poses, and it says the model does not
+transfer: `النسب` gets النِسَبِ where this poem reads النَّسَبِ;
+`الدين` gets الدِينِ vs the text's الدِّينَ. Some of the 87% is
+case-ending convention (خلقُ vs خلقٌ - the model supplies i`rab the
+vault omits at verse-end), but enough is genuine MSA-vs-classical
+vocalization mismatch that applying it corpus-wide would replace
+PaddleOCR's honest gaps with confident wrong marks.
+
+**Decision: NOT applied.** The plan's gate is explicit that "better on
+average, worse on the exact texts you care about" is a real risk with
+off-the-shelf NLP models trained on different Arabic registers, and that
+the check must not be skipped even when the aggregate number looks good.
+Here the aggregate looked good (+3.6) and the genre check failed it.
+
+**What is kept:** the module and its tests (8 tests over the conservation
+rule, using a stub disambiguator so the suite needs no 90 MB model
+download). The infrastructure is reusable if a Classical-Arabic-trained
+model appears, or if the vault's transcription is used to fine-tune.
+**What is also kept:** the measurement itself, because the +3.6 that
+would have looked like progress is, on closer inspection, a density
+artifact - the kind of number this project's discipline exists to catch.
+
 ## 2026-09-21 — The review queues now grow the gold corpus (process, not a task)
 
 **This entry exists so the workflow is not forgotten as a one-off
@@ -220,3 +270,14 @@ Step 4 is also a representativeness check: as the reviewed corpus grows,
 it answers whether the original small gold sample's numbers still hold on
 a richer sample - which is exactly the question Group B's go/no-go gate
 needed a bigger gold set to answer properly.
+
+## Future work (recorded, not scoped)
+
+If diacritic-completeness ever becomes a priority again: does
+PaddleOCR expose a **per-character or per-mark confidence** rather than
+only a per-line aggregate? A per-mark score would in principle allow
+escalating specifically on "diacritic likely missing here" instead of
+"line likely wrong overall" — the first escalation criterion that would
+actually target the DER problem. This needs live backend access to
+answer and is recorded here as a research question only, deliberately
+not scoped as a task.
