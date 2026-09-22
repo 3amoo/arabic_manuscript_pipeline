@@ -1,0 +1,137 @@
+"""
+Tests for scripts/ingest_reviewed_corrections.py (CLOSURE_PLAN Group C).
+
+The record file is human-written append-only JSONL; these tests verify
+the validation gate (malformed records are rejected, never silently
+absorbed) and that the gold layer is ADDITIVE - the hand-transcribed
+gold set is never modified.
+
+Run:  myenv/bin/python -m pytest tests/test_ingest_reviewed_corrections.py
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.ingest_reviewed_corrections import (  # noqa: E402
+    build_gold_layer,
+    load_corrections,
+)
+
+
+def _rec(**kw):
+    base = {
+        "queue": "manual_review_queue",
+        "page": 6,
+        "line": 14,
+        "ocr_text": "النص الغلط",
+        "corrected_text": "النص الصحيح",
+    }
+    base.update(kw)
+    return json.dumps(base, ensure_ascii=False)
+
+
+class TestLoadCorrections(unittest.TestCase):
+    def _load(self, lines):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "c.jsonl"
+            p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return load_corrections(p)
+
+    def test_well_formed_record_accepted(self):
+        valid, problems = self._load([_rec()])
+        self.assertEqual(len(valid), 1)
+        self.assertEqual(problems, [])
+
+    def test_missing_required_field_rejected(self):
+        r = json.loads(_rec())
+        del r["corrected_text"]
+        valid, problems = self._load([json.dumps(r, ensure_ascii=False)])
+        self.assertEqual(valid, [])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("corrected_text", problems[0])
+
+    def test_bad_json_rejected(self):
+        valid, problems = self._load(["{not json"])
+        self.assertEqual(valid, [])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("not valid JSON", problems[0])
+
+    def test_unknown_queue_rejected(self):
+        valid, problems = self._load([_rec(queue="made_up_queue")])
+        self.assertEqual(valid, [])
+        self.assertIn("unknown queue", problems[0])
+
+    def test_noop_correction_rejected(self):
+        valid, problems = self._load([_rec(ocr_text="same", corrected_text="same")])
+        self.assertEqual(valid, [])
+        self.assertIn("nothing to record", problems[0])
+
+    def test_blank_lines_ignored(self):
+        valid, _ = self._load(["", _rec(), ""])
+        self.assertEqual(len(valid), 1)
+
+    def test_missing_file_is_empty(self):
+        with tempfile.TemporaryDirectory() as td:
+            valid, problems = load_corrections(Path(td) / "absent.jsonl")
+            self.assertEqual(valid, [])
+            self.assertEqual(problems, [])
+
+
+class TestGoldLayer(unittest.TestCase):
+    def _valid(self, n=3):
+        return [
+            json.loads(_rec(page=6, line=i, corrected_text="بيت %d" % i))
+            for i in range(1, n + 1)
+        ]
+
+    def test_verses_numbered_without_colliding(self):
+        verses, _ = build_gold_layer(self._valid(), "doc")
+        # Synthetic numbering starts at 9001 so it cannot collide with the
+        # hand-transcribed gold's own verse numbers.
+        nums = [int(v.split()[0]) for v in verses]
+        self.assertEqual(nums, [9001, 9002, 9003])
+
+    def test_alignment_entry_per_page(self):
+        recs = self._valid(2) + [
+            json.loads(_rec(page=9, line=1, corrected_text="بيت آخر"))
+        ]
+        verses, alignment = build_gold_layer(recs, "doc")
+        self.assertEqual(len(alignment), 2)
+        pages = sorted(int(a["page"]) for a in alignment)
+        self.assertEqual(pages, [6, 9])
+        for a in alignment:
+            self.assertEqual(a["status"], "matched")
+            self.assertEqual(a["source"], "reviewed_corrections")
+            # The alignment must cover exactly the verses it produced.
+            span = int(a["gt_end"]) - int(a["gt_start"]) + 1
+            self.assertEqual(span, int(a["gt_verses_count"]))
+
+    def test_lines_ordered_within_page(self):
+        recs = [
+            json.loads(_rec(page=6, line=9, corrected_text="الثاني")),
+            json.loads(_rec(page=6, line=2, corrected_text="الأول")),
+        ]
+        verses, _ = build_gold_layer(recs, "doc")
+        self.assertEqual(verses[0].split()[1], "الأول")
+        self.assertEqual(verses[1].split()[1], "الثاني")
+
+    def test_original_gold_is_never_touched(self):
+        # build_gold_layer returns data only; it holds no write path to
+        # the hand-transcribed gold.
+        with tempfile.TemporaryDirectory() as td:
+            gt = Path(td) / "عمود_النسب.clean.md"
+            gt.write_text("1 الأصلي\n", encoding="utf-8")
+            before = gt.read_bytes()
+            build_gold_layer(self._valid(), "doc")
+            self.assertEqual(gt.read_bytes(), before)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -196,3 +196,27 @@ directory and never touches raw_text/. Revisit when either cross-
 skeleton correction lands (so it can fix base letters) or Group B
 provides an independent tashkeel correctness check to validate the
 majority form against.
+
+## 2026-09-21 — The review queues now grow the gold corpus (process, not a task)
+
+**This entry exists so the workflow is not forgotten as a one-off
+script nobody re-runs** (CLOSURE_PLAN Group C, step 4). From now on,
+whenever a review queue gets worked through, the process is:
+
+  1. work the queue (manual_review_queue.md / genealogy_crossref_review.md
+     / a rejected vote-correction from logs/vote_corrections.jsonl);
+  2. append one record per confirmed correction to
+     `data/reviewed_corrections.jsonl` (queue, page, line, ocr_text,
+     corrected_text, optional crop reference);
+  3. run `scripts/ingest_reviewed_corrections.py --apply` - it validates
+     every record (malformed JSON, missing fields, unknown queue, and
+     no-op corrections are all rejected with a message, never silently
+     absorbed) and folds the survivors into
+     `data/ground_truth/<doc>/reviewed_corrections.*` as an ADDITIVE
+     layer, never touching the hand-transcribed gold;
+  4. re-run `scripts/measure_der.py` against the expanded gold.
+
+Step 4 is also a representativeness check: as the reviewed corpus grows,
+it answers whether the original small gold sample's numbers still hold on
+a richer sample - which is exactly the question Group B's go/no-go gate
+needed a bigger gold set to answer properly.
