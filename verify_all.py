@@ -62,6 +62,7 @@ TEST_MODULES = [
     "tests.test_clean_ground_truth",
     "tests.test_noise_crop_gate",
     "tests.test_vote_correct_names",
+    "tests.test_genealogy_crossref",
 ]
 SMOKE_ARGS = ["--start", "24", "--end", "26"]
 DOC = "عمود النسب نسخة 2"
