@@ -60,6 +60,7 @@ TEST_MODULES = [
     "tests.test_atria_text_backend",
     "tests.test_benchmark_cer_wer",
     "tests.test_clean_ground_truth",
+    "tests.test_noise_crop_gate",
 ]
 SMOKE_ARGS = ["--start", "24", "--end", "26"]
 DOC = "عمود النسب نسخة 2"
