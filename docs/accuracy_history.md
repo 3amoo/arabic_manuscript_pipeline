@@ -139,3 +139,60 @@ junk lines left on the 9 rule pages.
 is the orthogonality result from the previous entry in action: rules
 carry no text, so removing them from the escalation path changes which
 lines get queued for review without changing any text the metrics see.
+
+## 2026-09-21 — Cross-occurrence vote correction: built, and measured to be CER-neutral
+
+`scripts/vote_correct_names.py` (CLOSURE_PLAN Group E) exploits the one
+structural property a generic OCR corrector cannot: a genealogy reference
+repeats the same names in chain after chain (224 lines carry بن in this
+corpus, 44 with chains of two or more). A name read 40 times where 38
+readings agree and 2 differ is an OCR error, decided from internal
+consistency alone.
+
+**Measured result on the real corpus at the conservative defaults:
+49 correctable clusters, 57 token fixes — and CER/WER/diacritics
+accuracy completely unchanged (23.7% / 59.8% / 83.1% on both sides,
+identical to the digit).**
+
+The reason is understood, not assumed away: **all 57 fixes are
+diacritics-only; zero change base letters.** The benchmark compares
+against a letter-accurate ground truth with tashkeel stripped, so a
+fix that only moves a fatha is invisible to it by construction. And
+base-letter OCR errors — the ones that WOULD move CER — escape the
+clusterer entirely, because a base-letter slip produces a *different
+skeleton*: عمرو read as عَمْرر lands in skeleton عمرر and never meets
+the correct form. Cross-skeleton merging was deliberately not added
+(the plan's under-merge bias): عمرو vs عمر are edit-distance-1 but are
+genuinely different names, and no threshold separates "slip" from
+"variant" reliably.
+
+Three guards the plan called for, each verified to fail-on-revert in
+`tests/test_vote_correct_names.py` (19 tests):
+
+- **Directional diacritic guard.** The naive majority vote gets the
+  tashkeel case backwards: PaddleOCR usually *drops* marks, so the
+  majority form is frequently the bare skeleton, and voting would
+  strip correct marks from better-read minorities (علَى x26 -> على x141
+  would have destroyed 26 good fathas). A correction is only applied
+  when the majority carries at least as many marks as the minority, or
+  the minority is garbled (stacked marks like علََى).
+- **The ى/ي split is deliberately not unified.** على (preposition) and
+  علي (the name Ali) share a skeleton under ى->ي unification; the
+  141-occurrence preposition would then absorb and overwrite the
+  2-occurrence name. Keeping them distinct costs merging أبى/أبي (two
+  valid spellings of one word) — a safe miss, since neither is an error.
+- **Chain evidence >= 2 distinct lines.** A function word can sit next
+  to بن once by chance in 2006 lines; a real genealogy name recurs.
+
+**Disposition: the corrector is NOT applied to the corpus output.** It
+is a diacritization-consistency tool whose effect is not measurable
+against the letter-level benchmark, and whose "majority" diacritization
+is PaddleOCR's own noisy tashkeel — applying it corpus-wide would
+entrench a common-but-unverified reading for no measurable gain. The
+dry-run report and `logs/vote_corrections.jsonl` (49 entries, each with
+the full vote breakdown and page/line references) are the auditable
+artifacts; `--apply` writes to a separate `vote_corrected_text/`
+directory and never touches raw_text/. Revisit when either cross-
+skeleton correction lands (so it can fix base letters) or Group B
+provides an independent tashkeel correctness check to validate the
+majority form against.
