@@ -188,3 +188,47 @@ account for it rather than leaving it uncommitted indefinitely.
 | 6 | Commit C | Standalone, passing commit |
 | 7 | Resolve + commit B's disposition | Explicit keep/remove decision, documented either way |
 | 8 | Final full-sequence verification | Confirms the split reproduces the pre-split state exactly |
+
+---
+
+## Post-mortem (2026-09-22): the split produced non-bisectable commits
+
+The first execution of this plan produced 7 commits whose **final tip** passed
+`verify_all.py` and matched the pre-split baseline byte-for-byte, but where
+**commits 1–6 failed in isolation**. A `git bisect` through that history would
+have reported false failures at every stop. The defects, found by auditing each
+commit in a scratch worktree (not by reasoning about them):
+
+1. **`scripts/fallback_report.py` landed in commit 7, but its importer
+   `tests/test_fallback_visibility.py` landed in commit 1** — 4 test errors at
+   every intermediate commit. `scripts/measure_der.py` and
+   `scripts/ab_upscale_der.py` were misplaced the same way (both are
+   pre-closure infrastructure; the former is imported by
+   `tests/test_measure_der.py`, also in commit 1).
+2. **`verify_all.py` didn't exist at commits 1–2 at all**, so bisect could not
+   have run it there regardless.
+3. **Commit 5's `verify_all.py` declared 14 modules but its tree contained 12**
+   — the module list was edited against the *final* tree, not that commit's.
+
+The root cause of all three is the same: the per-commit `verify_all.py`
+variant and the file inventory were both derived from the final state and
+trusted, instead of verified against each commit's own tree. **The final tip
+passing was never evidence that the intermediate commits passed** — that is
+exactly the assumption this plan's Task 8 warned against and the first
+execution nonetheless made.
+
+**Fix applied:** rebuilt the 7 commits with `git commit-tree`, keeping each
+commit's original tree and message byte-identical, but moving
+`fallback_report.py` / `measure_der.py` / `ab_upscale_der.py` into the baseline
+commit and adding a per-commit `verify_all.py` whose `TEST_MODULES` lists
+exactly the modules present in that commit. The new tip's tree is identical to
+the old tip's (`git diff backup-before-rebase-fix HEAD` is empty), so no
+delivered content changed — only the history's shape. All 7 now pass the full
+`verify_all.py` (invariant + tests + smoke + benchmark) in isolated worktrees.
+
+**Lesson recorded for any future split:** the per-commit verification must be
+run against the commit *as committed* (worktree checkout), not against the
+working tree with the untracked files still lying around — the working tree
+silently supplies files the commit doesn't contain, which is how defects 1
+and 3 hid through an entire session. Verify every intermediate commit as you
+go; the inventory step and the final tip are not substitutes.
