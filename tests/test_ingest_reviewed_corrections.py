@@ -32,6 +32,7 @@ def _rec(**kw):
         "line": 14,
         "ocr_text": "النص الغلط",
         "corrected_text": "النص الصحيح",
+        "confidence": "full_line",
     }
     base.update(kw)
     return json.dumps(base, ensure_ascii=False)
@@ -84,6 +85,99 @@ class TestLoadCorrections(unittest.TestCase):
             self.assertEqual(problems, [])
 
 
+class TestConfidenceField(unittest.TestCase):
+    """The confidence field is the Phase 2 step 4 requirement: it records
+    whether the human confirmed the whole line or only the flagged token.
+    A partial entry must never be counted as fully verified."""
+
+    def _load(self, lines):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "c.jsonl"
+            p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return load_corrections(p)
+
+    def test_missing_confidence_rejected(self):
+        r = json.loads(_rec())
+        del r["confidence"]
+        valid, problems = self._load([json.dumps(r, ensure_ascii=False)])
+        self.assertEqual(valid, [])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("confidence", problems[0])
+
+    def test_bad_confidence_value_rejected(self):
+        valid, problems = self._load([_rec(confidence="verified")])
+        self.assertEqual(valid, [])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("confidence", problems[0])
+
+    def test_empty_confidence_rejected(self):
+        valid, problems = self._load([_rec(confidence="")])
+        self.assertEqual(valid, [])
+        self.assertEqual(len(problems), 1)
+
+    def test_both_valid_values_accepted(self):
+        valid, problems = self._load(
+            [_rec(line=1, confidence="full_line"),
+             _rec(line=2, confidence="partial")]
+        )
+        self.assertEqual(len(valid), 2)
+        self.assertEqual(problems, [])
+        self.assertEqual(valid[0]["confidence"], "full_line")
+        self.assertEqual(valid[1]["confidence"], "partial")
+
+
+class TestPartialExclusion(unittest.TestCase):
+    """A partial record is held back from the gold layer: its
+    corrected_text is trustworthy at the flagged token only, and the
+    rest of the line was never re-checked. Admitting it would let
+    unchecked text pass as verified and contaminate Phase 3's gate."""
+
+    def _recs(self, **kw):
+        return [json.loads(_rec(page=6, line=i, **kw)) for i in (1, 2, 3)]
+
+    def test_only_full_line_becomes_gold(self):
+        recs = self._recs(confidence="full_line")
+        verses, alignment, n_partial = build_gold_layer(recs, "doc")
+        self.assertEqual(len(verses), 3)
+        self.assertEqual(len(alignment), 1)
+        self.assertEqual(n_partial, 0)
+
+    def test_partial_held_back(self):
+        recs = self._recs(confidence="partial")
+        verses, alignment, n_partial = build_gold_layer(recs, "doc")
+        self.assertEqual(verses, [])
+        self.assertEqual(alignment, [])
+        self.assertEqual(n_partial, 3)
+
+    def test_mixed_ingests_only_full_line(self):
+        recs = [
+            json.loads(_rec(page=6, line=1, confidence="full_line")),
+            json.loads(_rec(page=6, line=2, confidence="partial")),
+            json.loads(_rec(page=6, line=3, confidence="full_line")),
+        ]
+        verses, alignment, n_partial = build_gold_layer(recs, "doc")
+        self.assertEqual(len(verses), 2)
+        self.assertEqual(n_partial, 1)
+        # Verse numbering is dense over the ingested records only.
+        nums = [int(v.split()[0]) for v in verses]
+        self.assertEqual(nums, [9001, 9002])
+        # The alignment span must match the ingested count, not the
+        # record count: 2 verses, not 3.
+        self.assertEqual(int(alignment[0]["gt_verses_count"]), 2)
+        self.assertEqual(int(alignment[0]["gt_start"]), 9001)
+        self.assertEqual(int(alignment[0]["gt_end"]), 9002)
+
+    def test_partial_on_other_page_does_not_create_entry(self):
+        recs = [
+            json.loads(_rec(page=6, line=1, confidence="full_line")),
+            json.loads(_rec(page=9, line=1, confidence="partial")),
+        ]
+        verses, alignment, n_partial = build_gold_layer(recs, "doc")
+        self.assertEqual(len(verses), 1)
+        self.assertEqual([int(a["page"]) for a in alignment], [6])
+        self.assertEqual(n_partial, 1)
+
+
 class TestGoldLayer(unittest.TestCase):
     def _valid(self, n=3):
         return [
@@ -92,7 +186,7 @@ class TestGoldLayer(unittest.TestCase):
         ]
 
     def test_verses_numbered_without_colliding(self):
-        verses, _ = build_gold_layer(self._valid(), "doc")
+        verses, _, _ = build_gold_layer(self._valid(), "doc")
         # Synthetic numbering starts at 9001 so it cannot collide with the
         # hand-transcribed gold's own verse numbers.
         nums = [int(v.split()[0]) for v in verses]
@@ -102,7 +196,7 @@ class TestGoldLayer(unittest.TestCase):
         recs = self._valid(2) + [
             json.loads(_rec(page=9, line=1, corrected_text="بيت آخر"))
         ]
-        verses, alignment = build_gold_layer(recs, "doc")
+        verses, alignment, _ = build_gold_layer(recs, "doc")
         self.assertEqual(len(alignment), 2)
         pages = sorted(int(a["page"]) for a in alignment)
         self.assertEqual(pages, [6, 9])
@@ -118,7 +212,7 @@ class TestGoldLayer(unittest.TestCase):
             json.loads(_rec(page=6, line=9, corrected_text="الثاني")),
             json.loads(_rec(page=6, line=2, corrected_text="الأول")),
         ]
-        verses, _ = build_gold_layer(recs, "doc")
+        verses, _, _ = build_gold_layer(recs, "doc")
         self.assertEqual(verses[0].split()[1], "الأول")
         self.assertEqual(verses[1].split()[1], "الثاني")
 

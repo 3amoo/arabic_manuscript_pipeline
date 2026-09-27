@@ -15,12 +15,25 @@ TWO PARTS, deliberately separate:
      reviewing a queue line, append one JSON record to
      data/reviewed_corrections.jsonl:
 
-       {"queue": "manual_review_queue",
-        "page": 6, "line": 14, "file": "page_006.txt",
-        "ocr_text": "ما the OCR actually said",
-        "corrected_text": "ما the text should say",
-        "crop": "optional path or reference to the source image crop",
-        "note": "optional one-line rationale"}
+        {"queue": "manual_review_queue",
+         "page": 6, "line": 14, "file": "page_006.txt",
+         "ocr_text": "ما the OCR actually said",
+         "corrected_text": "ما the text should say",
+         "confidence": "full_line",
+         "crop": "optional path or reference to the source image crop",
+         "note": "optional one-line rationale"}
+
+      `confidence` is REQUIRED and must be one of:
+        "full_line" — you read and confirmed the WHOLE line, not just
+          the flagged token. Becomes a gold verse.
+        "partial"   — you confirmed only the flagged token; the rest of
+          the line was not re-checked. Stays in the record file and is
+          excluded from the gold layer and from any go/no-go gate until
+          upgraded. Honest "partial" is far more useful than a guessed
+          "full_line": the whole point of this field is that a
+          partially-verified line must never be counted as fully
+          verified (see NEXT_DEVELOPMENT_PLAN_2.md Phase 2 step 4).
+
 
      Appending by hand is intentional: the review judgment is human, so
      the record is human-written too. Nothing here guesses for you.
@@ -55,12 +68,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-REQUIRED_FIELDS = ("queue", "page", "line", "ocr_text", "corrected_text")
+REQUIRED_FIELDS = ("queue", "page", "line", "ocr_text", "corrected_text", "confidence")
 VALID_QUEUES = (
     "manual_review_queue",
     "genealogy_crossref_review",
     "vote_corrections",
 )
+# How much of the line the human actually confirmed. The distinction is
+# load-bearing: a partial entry's corrected_text is trustworthy only at
+# the flagged token — the rest of the line was never re-checked — so it
+# must never enter a go/no-go calculation (Phase 3's gate) as if it were
+# fully verified. See NEXT_DEVELOPMENT_PLAN_2.md Phase 2 step 4.
+VALID_CONFIDENCE = ("full_line", "partial")
 
 
 def load_corrections(path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
@@ -96,6 +115,15 @@ def load_corrections(path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
                 % lineno
             )
             continue
+        conf = rec.get("confidence")
+        if conf not in VALID_CONFIDENCE:
+            problems.append(
+                "line %d: confidence must be one of %s, got %r "
+                "(the field is required: did you confirm the whole line "
+                "or only the flagged token?)"
+                % (lineno, VALID_CONFIDENCE, conf)
+            )
+            continue
         rec.setdefault("file", "page_%03d.txt" % rec["page"])
         valid.append(rec)
     return valid, problems
@@ -103,17 +131,29 @@ def load_corrections(path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
 
 def build_gold_layer(
     valid: List[Dict[str, Any]], document: str
-) -> Tuple[List[str], List[Dict[str, Any]]]:
+) -> Tuple[List[str], List[Dict[str, Any]], int]:
     """Fold reviewed corrections into the gold-corpus format:
     verse-numbered text + alignment entries pointing at the OCR page.
 
     The verse number is synthetic (9001+) so reviewed verses never
     collide with the hand-transcribed gold's own numbering, which means
-    the layer can be measured on its own or merged without ambiguity."""
+    the layer can be measured on its own or merged without ambiguity.
+
+    Only full_line-confirmed records become gold verses: a partial
+    record's corrected_text is trustworthy at the flagged token alone,
+    and the rest of that line was never re-checked, so admitting it
+    would let unchecked text pass as verified. Partial records stay in
+    the append-only record file pending upgrade; their count is returned
+    so the caller can report it separately rather than blending it into
+    the headline metric (NEXT_DEVELOPMENT_PLAN_2.md Phase 2 step 4-5)."""
     verses: List[str] = []
     alignment: List[Dict[str, Any]] = []
     by_page: Dict[int, List[Dict[str, Any]]] = {}
+    n_partial = 0
     for rec in valid:
+        if rec.get("confidence") != "full_line":
+            n_partial += 1
+            continue
         by_page.setdefault(rec["page"], []).append(rec)
     n = 9000
     for page in sorted(by_page):
@@ -141,7 +181,7 @@ def build_gold_layer(
                 "source": "reviewed_corrections",
             }
         )
-    return verses, alignment
+    return verses, alignment, n_partial
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -174,7 +214,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("  the record format.")
         return 0
 
-    verses, alignment = build_gold_layer(valid, args.document)
+    verses, alignment, n_partial = build_gold_layer(valid, args.document)
     gt_dir = Path(args.gt_root) / args.document
     gt_file = gt_dir / "reviewed_corrections.clean.md"
     al_file = gt_dir / "reviewed_corrections.alignment.json"
@@ -186,6 +226,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     print("  by source queue:")
     for q, c in sorted(by_queue.items(), key=lambda kv: -kv[1]):
         print("    %-26s %d" % (q, c))
+    print()
+    n_full = len(valid) - n_partial
+    print("  full-line confirmed:       %d  (enters the gold layer)" % n_full)
+    print("  token-only (partial):      %d  (held back — not gate-grade)" % n_partial)
     print()
     print("  gold layer would add: %d verses across %d pages"
           % (len(verses), len(alignment)))
@@ -202,6 +246,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         print()
         print("  applied. Re-run scripts/measure_der.py with this layer to")
         print("  re-measure against the expanded gold set.")
+        if n_partial:
+            print()
+            print("  NOTE: %d partial record(s) were NOT ingested. They" % n_partial)
+            print("  remain in the record file; upgrade them to")
+            print("  confidence: full_line once the whole line is checked.")
     else:
         print()
         print("  DRY RUN - nothing written. Re-run with --apply.")
