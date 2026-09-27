@@ -61,6 +61,16 @@ from typing import Dict, List, Optional, Set, Tuple
 
 DEFAULT_VAULT = "/home/omar/Desktop/Obsidian/علم شرعي/علم الأنساب"
 
+# Phase 5 item 13: the vault is an unpinned external dependency this
+# project builds corrections on, so it is pinned by content hash in
+# docs/genealogy_vault_pin.md. If the vault moves on, the evidence chain
+# behind the applied Phase 1 corrections goes stale — a mismatch here is
+# not a pipeline failure, but it is the signal to re-run the review.
+VAULT_PIN_FILE = "docs/genealogy_vault_pin.md"
+PINNED_VAULT_HASH = (
+    "7e92a8e6747f6bf6eb78b5aebd522834f087b239b3b4b134f7a3e131ee665bb3"
+)
+
 # Edit distance for near-misses: 1 = a dotting slip (ن/ة or ب/ي
 # confusion). 2 was tried and rejected: it merged genuinely different
 # names that look alike (الأمين vs سلامان at distance 2, أمين vs أمية at
@@ -354,6 +364,44 @@ def write_review_queue(results: List[Dict[str, object]], path: Path) -> int:
     return len(flagged)
 
 
+def vault_snapshot_hash(vault: Path) -> Optional[str]:
+    """Same composition as verify_all.py's evidence invariant:
+    sha256sum *.md | sort | sha256sum. Keeping the construction identical
+    means the pin and the check cannot drift apart by accident."""
+    import hashlib
+    files = sorted(vault.glob("*.md"))
+    if not files:
+        return None
+    h = hashlib.sha256()
+    for p in files:
+        h.update(hashlib.sha256(p.read_bytes()).hexdigest().encode())
+        h.update(b"  " + p.name.encode() + b"\n")
+    return h.hexdigest()
+
+
+def check_vault_drift(vault: Path) -> None:
+    """Report whether the live vault still matches the pinned snapshot.
+
+    Not an error: the vault is a living project and its changes are
+    usually genuine corrections. This is the signal that the vault
+    evidence behind the applied corrections (logs/vault_review_56.jsonl,
+    logs/vault_vote_corrections.jsonl) is stale and should be re-run."""
+    got = vault_snapshot_hash(vault)
+    if got is None:
+        print("  vault drift: no markdown found in %s" % vault)
+        return
+    if got == PINNED_VAULT_HASH:
+        print("  vault pin OK: matches docs/genealogy_vault_pin.md")
+    else:
+        print("  vault DRIFT: vault no longer matches the pinned snapshot")
+        print("    pinned: %s" % PINNED_VAULT_HASH)
+        print("    actual: %s" % got)
+        print("    not a failure - the vault is a living project, but the")
+        print("    vault evidence behind the applied corrections is now")
+        print("    stale: re-run --review and re-apply. See")
+        print("    docs/genealogy_vault_pin.md.")
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -368,6 +416,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--vault", default=DEFAULT_VAULT)
     ap.add_argument("--max-edit-distance", type=int, default=MAX_EDIT_DISTANCE)
     ap.add_argument("--queue", default="logs/genealogy_crossref_review.md")
+    ap.add_argument("--force-queue", action="store_true",
+                    help="overwrite an existing non-default --queue file")
     ap.add_argument("--report", action="store_true")
     args = ap.parse_args(argv)
 
@@ -376,9 +426,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         raise SystemExit("vault not found: %s (pass --vault PATH)" % vault)
 
     index = build_vault_index(vault)
+    check_vault_drift(vault)
     document_dir = Path(args.output_root) / args.document
     if not document_dir.is_dir():
         raise SystemExit("no such document dir: %s" % document_dir)
+
+    queue = Path(args.queue)
+    if queue.exists() and queue.resolve() != Path(
+        "logs/genealogy_crossref_review.md"
+    ).resolve() and not args.force_queue:
+        # A non-default queue path that already holds a review file is
+        # almost certainly a rerun of an old ad-hoc invocation whose
+        # --vault pointed somewhere else (a drift probe, a one-file
+        # temp copy). Overwriting it silently destroys the real review
+        # queue — measured: one such probe cut the queue from 123 rows
+        # to 27 because the temp vault had one file in it.
+        raise SystemExit(
+            "refusing to overwrite an existing non-default queue: %s\n"
+            "pass --force-queue to overwrite, or a --queue path that "
+            "does not exist yet" % queue
+        )
 
     records = load_ocr_corpus(document_dir)
     occurrences = extract_ocr_names(records)

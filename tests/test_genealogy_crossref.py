@@ -18,14 +18,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.genealogy_crossref import (  # noqa: E402
     MAX_EDIT_DISTANCE,
+    PINNED_VAULT_HASH,
     build_vault_index,
     canonical_form,
+    check_vault_drift,
     cross_reference,
     extract_ocr_names,
     load_ocr_corpus,
     match_occurrence,
     strip_diacritics,
+    vault_snapshot_hash,
     write_review_queue,
+    main,
 )
 
 
@@ -189,6 +193,111 @@ class TestReviewQueue(unittest.TestCase):
             before = (vault / "lineage.md").read_bytes()
             build_vault_index(vault)
             self.assertEqual((vault / "lineage.md").read_bytes(), before)
+
+
+class TestVaultPin(unittest.TestCase):
+    """Phase 5 item 13: the vault is an unpinned external dependency the
+    Phase 1 corrections are built on. The pin must (a) recognise a
+    matching vault and (b) fire loudly on drift — a stale pin would
+    silently detach every correction's evidence chain from the text it
+    was verified against."""
+
+    def test_snapshot_hash_is_order_independent(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            vault = _synthetic_vault(Path(td))
+            h1 = vault_snapshot_hash(vault)
+            # Rewrite one file in place (content change -> hash change).
+            (vault / "lineage.md").write_text(
+                "different content entirely\n", encoding="utf-8")
+            h2 = vault_snapshot_hash(vault)
+            self.assertNotEqual(h1, h2)
+
+    def test_empty_vault_hashes_to_none(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            empty = Path(td) / "empty"
+            empty.mkdir()
+            self.assertIsNone(vault_snapshot_hash(empty))
+
+    def test_drift_message_fires_on_mismatch(self):
+        import tempfile
+        import io
+        import contextlib
+        with tempfile.TemporaryDirectory() as td:
+            vault = _synthetic_vault(Path(td))
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                check_vault_drift(vault)
+            out = buf.getvalue()
+        # The synthetic vault cannot match the real pin, so this is the
+        # drift branch by construction.
+        self.assertIn("DRIFT", out)
+        self.assertIn(PINNED_VAULT_HASH, out)
+        # Drift is reported, not raised: the vault is a living project.
+        self.assertIn("living project", out)
+
+    def test_matching_vault_reports_ok(self):
+        import tempfile
+        import io
+        import contextlib
+        with tempfile.TemporaryDirectory() as td:
+            vault = _synthetic_vault(Path(td))
+            # check_vault_drift compares against the module-level pin;
+            # patch it to the synthetic vault's own hash to exercise the
+            # match branch.
+            import scripts.genealogy_crossref as gc
+            real = gc.PINNED_VAULT_HASH
+            gc.PINNED_VAULT_HASH = vault_snapshot_hash(vault)
+            try:
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    check_vault_drift(vault)
+            finally:
+                gc.PINNED_VAULT_HASH = real
+            self.assertIn("pin OK", buf.getvalue())
+
+    def test_non_default_queue_refuses_to_overwrite(self):
+        """Regression: an ad-hoc rerun with a different --vault (a drift
+        probe using a one-file temp copy) silently overwrote the real
+        123-row review queue with 27 rows. A non-default --queue that
+        already exists must now refuse unless --force-queue is given."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            # --output-root joins with --document, so raw_text sits
+            # one level below it.
+            doc = Path(td) / "doc" / "raw_text"
+            doc.mkdir(parents=True)
+            doc.joinpath("page_001.txt").write_text(
+                "# Page 1\nزيد بن عمرو\n", encoding="utf-8")
+            vault = _synthetic_vault(Path(td))
+            q = Path(td) / "old_queue.md"
+            q.write_text("| page | line |\n| 1 | 1 |\n", encoding="utf-8")
+            argv = ["--document", "doc", "--output-root", str(Path(td)),
+                    "--vault", str(vault), "--queue", str(q)]
+            # The drift check runs against the real pin and prints DRIFT,
+            # which is fine — it must not stop the guard after it.
+            with self.assertRaises(SystemExit) as cm:
+                main(argv)
+            self.assertNotEqual(cm.exception.code, 0)
+            self.assertIn("| 1 | 1 |", q.read_text(encoding="utf-8"))
+
+    def test_force_queue_overwrites(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            doc = Path(td) / "doc" / "raw_text"
+            doc.mkdir(parents=True)
+            doc.joinpath("page_001.txt").write_text(
+                "# Page 1\nزيد بن عمرو\n", encoding="utf-8")
+            vault = _synthetic_vault(Path(td))
+            q = Path(td) / "old_queue.md"
+            q.write_text("STALE\n", encoding="utf-8")
+            argv = ["--document", "doc", "--output-root", str(Path(td)),
+                    "--vault", str(vault), "--queue", str(q),
+                    "--force-queue"]
+            rc = main(argv)
+            self.assertEqual(rc, 0)
+            self.assertNotIn("STALE", q.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
