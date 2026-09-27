@@ -1,5 +1,5 @@
 """
-Regression tests for the four bugs fixed in FIX_PLAN.md (Groups B and C).
+Regression tests for the four bugs fixed in plans/FIX_PLAN.md (Groups B and C).
 
 Each test here exists because a specific bug was found and fixed, and each
 one is written to FAIL LOUDLY if that exact bug comes back - not just to

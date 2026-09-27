@@ -32,7 +32,7 @@ TWO PARTS, deliberately separate:
           upgraded. Honest "partial" is far more useful than a guessed
           "full_line": the whole point of this field is that a
           partially-verified line must never be counted as fully
-          verified (see NEXT_DEVELOPMENT_PLAN_2.md Phase 2 step 4).
+          verified (see plans/NEXT_DEVELOPMENT_PLAN_2.md Phase 2 step 4).
 
 
      Appending by hand is intentional: the review judgment is human, so
@@ -78,7 +78,7 @@ VALID_QUEUES = (
 # load-bearing: a partial entry's corrected_text is trustworthy only at
 # the flagged token — the rest of the line was never re-checked — so it
 # must never enter a go/no-go calculation (Phase 3's gate) as if it were
-# fully verified. See NEXT_DEVELOPMENT_PLAN_2.md Phase 2 step 4.
+# fully verified. See plans/NEXT_DEVELOPMENT_PLAN_2.md Phase 2 step 4.
 VALID_CONFIDENCE = ("full_line", "partial")
 
 
@@ -145,7 +145,7 @@ def build_gold_layer(
     would let unchecked text pass as verified. Partial records stay in
     the append-only record file pending upgrade; their count is returned
     so the caller can report it separately rather than blending it into
-    the headline metric (NEXT_DEVELOPMENT_PLAN_2.md Phase 2 step 4-5)."""
+    the headline metric (plans/NEXT_DEVELOPMENT_PLAN_2.md Phase 2 step 4-5)."""
     verses: List[str] = []
     alignment: List[Dict[str, Any]] = []
     by_page: Dict[int, List[Dict[str, Any]]] = {}

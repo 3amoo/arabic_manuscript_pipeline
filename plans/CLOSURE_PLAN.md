@@ -434,3 +434,36 @@ learned rather than re-deriving it.
     vault (attestations 2–21). **Not applied yet**: the plan's step 2
     calls for human confirmation of the rows, and the queue rows are
     the ones to confirm.
+
+- **2026-09-22 — Phase 1 DONE.** All 56 base-letter rows reviewed
+  individually (26 reject / 30 accept, per-row verdicts in
+  `logs/vault_review_56.jsonl`) and **34 token fixes applied across 21
+  pages**. The diacritics-only class (52 rows) was measured rather than
+  applied: 47 of 52 carry the OCR's own correct canonical vowelling and
+  the vault records these names bare, so applying would have stripped
+  real tashkeel. No diacritics-only corrections applied. See
+  `VAULT_VOTE_FIX_PLAN.md` Task 6.
+
+- **2026-09-22 — GT-contradiction audit DONE.** A diff against the
+  hand-transcribed ground truth found the GT independently confirms 6
+  of the corrections and contradicts 2 review errors, which were
+  reverted with evidence: `عقبة`→`عتبة` (p44 by GT verse 301, p76 by
+  the page's own historical context) and `حام`→`سام` (the verse reads
+  Kush son of HAM, twice). The audit table for all 34, plus a
+  GT-verification gate now hard-blocking contradictions in
+  `vault_vote_correct_names.py`, are in `GT_CONTRADICTION_FIX_PLAN.md`.
+  30 token fixes remain. The `vault_corrected_text` layer was then
+  promoted to the consumed benchmark input (CER 23.7 / WER 59.7 /
+  diacritics 83.0).
+
+- **2026-09-22 — Phase 5 hygiene DONE.** The two plan docs committed;
+  `backup-before-rebase-fix` deleted after confirming strictly older;
+  the external genealogy vault pinned by content hash with drift
+  detection (`docs/genealogy_vault_pin.md`).
+
+- **2026-09-22 — Phase 2 step 4 DONE.** The `full_line` vs `partial`
+  confidence field is required on every reviewed-correction record
+  before the first ingest; partial entries are excluded from the gold
+  layer and from any go/no-go gate. Phase 2's ingest now waits only on
+  reviewed records to exist — `data/reviewed_corrections.jsonl` is
+  still empty, which is a human-review task, not a code one.

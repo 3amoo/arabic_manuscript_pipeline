@@ -383,7 +383,7 @@ class TestProvenance(unittest.TestCase):
 class TestReviewGate(unittest.TestCase):
     """The human review is the decision layer — no measured signal
     separates a garbled token from a genuinely distinct name (see
-    DISCRIMINATOR_MEASUREMENTS.md), so the guards propose and the review
+    plans/DISCRIMINATOR_MEASUREMENTS.md), so the guards propose and the review
     decides. The refusal happens in main(): guards consult the review to
     *override* their thresholds (a permissive signal), and main() then
     filters the proposed set down to the accepted skeletons."""

@@ -643,7 +643,7 @@ def load_review_verdicts(path: Path) -> Dict[str, str]:
 
     The review is the decision layer: no signal in the pipeline can
     separate a garbled token from a genuinely distinct name (measured
-    across four discriminators — see DISCRIMINATOR_MEASUREMENTS.md), so
+    across four discriminators — see plans/DISCRIMINATOR_MEASUREMENTS.md), so
     the corrector's guards propose candidates and the human review
     decides. Returns a skeleton -> verdict map.
     """

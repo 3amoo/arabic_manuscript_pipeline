@@ -230,12 +230,32 @@ proceed.
 
 | # | Task | Priority | Fixes |
 |---|------|----------|-------|
-| 1 | Tokenizer: strip conjunction prefixes correctly | BLOCKING | `وسعد` false positive |
-| 2 | Self-attestation guard for minority form | BLOCKING (measured, not implemented — see below) | `سعيد`→`سعد` name collision |
-| 3 | Restrict corrections to genealogy-chain context | BLOCKING (measured, not implemented — see below) | `يداد`→`شداد` context leak |
-| 4 | Re-validate against all 6 + **full 56-row review (no sampling)** | BLOCKING (gate) | Confirms 1–3 actually fixed the problem |
-| 5 | Apply the 3 confirmed corrections only | NORMAL | Delivers the genuine wins found this round |
-| 6 | Resume Phase 1.3 with continued sampling skepticism | NORMAL | Unblocks the rest of NEXT_DEVELOPMENT_PLAN_2 |
+| 1 | Tokenizer: strip conjunction prefixes correctly | BLOCKING — DONE | `وسعد` false positive |
+| 2 | Self-attestation guard for minority form | BLOCKING — SUPERSEDED, see note | `سعيد`→`سعد` name collision |
+| 3 | Restrict corrections to genealogy-chain context | BLOCKING — SUPERSEDED, see note | `يداد`→`شداد` context leak |
+| 4 | Re-validate against all 6 + **full 56-row review (no sampling)** | BLOCKING (gate) — DONE | Confirms 1–3 actually fixed the problem |
+| 5 | Apply the 3 confirmed corrections only | NORMAL — DONE (superseded in scope; see note) | Delivers the genuine wins found this round |
+| 6 | Resume Phase 1.3 with continued sampling skepticism | NORMAL — DONE | Unblocks the rest of NEXT_DEVELOPMENT_PLAN_2 |
+
+**Why Tasks 2 and 3 read "measured, not implemented" and are still
+closed.** The guards as originally specified were never written as code,
+and the reason is the measurement itself: `possible_name_collision` and
+`out_of_chain_matches` were tested as discriminators and separated none
+of the 6 already-reviewed cases (DISCRIMINATOR_MEASUREMENTS.md). An
+automated guard that either misses the false positives or takes the true
+positives down with them would have added false confidence to a process
+whose value is the human check. Instead the whole task was closed by
+reviewing all 56 rows individually — the queues became a human-judgment
+workload sorted by difficulty, not an automated gate. The outcomes the
+guards were meant to produce were produced by that review and are
+recorded per-row in `logs/vault_review_56.jsonl`:
+- `سعيد`→`سعد` (p11 l26): **rejected** — "REAL NAME COLLISION: سعيد بن
+  المسيب is a famous تابعي; سعد is a different companion".
+- `يداد`→`شداد` (p8 l13, p22 l12): **rejected** — "REAL NAME COLLISION:
+  أحمد محمود بن يداد الحسني is the commentator; prose about book
+  transmission, not Adnan lineage".
+Task 1's fix IS in code (`split_conjunction_prefix`), and its
+over-strip guard is tested against exactly the `وهب`/`وسعد` pair.
 
 **Task 4's sampling approach was dropped after measurement (2026-09-22).**
 The original instruction was to spot-check 10–15 of the 56 rows. Four

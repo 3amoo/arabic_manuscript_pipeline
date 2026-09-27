@@ -77,7 +77,7 @@ above is what future changes are judged against.
 ## 2026-09-21 — Why vision-fallback health does NOT move the DER number
 
 **This section exists to stop a specific mistake.** Group G (a fourth
-vision provider) was closed in NEXT_DEVELOPMENT_PLAN.md with the
+vision provider) was closed in NEXT_DEVELOPMENT_PLAN.md (plans/) with the
 justification "escalation is only 4.9%, so a fourth provider isn't
 worth it." That conclusion is right but the stated reason is wrong, and
 the wrong reason invites someone to reopen Group G later expecting it
