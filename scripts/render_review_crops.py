@@ -166,41 +166,89 @@ def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
-def _pair_row(
-    idx: int,
-    guess: str,
+def _pair_rows(
+    rows: List[Tuple[int, str]],
     crops: List[np.ndarray],
     texts: List[str],
     window: int = 3,
-    used: Optional[set] = None,
-) -> Optional[int]:
-    """Find the band index for a guess whose stored content-line index
-    is `idx`. Most pages differ from a fresh run by only 1-2 bands
-    (measured: 19 vs 18, 18 vs 19), so search a small window around the
-    stored index and require the fresh OCR text to actually resemble the
-    stored guess before accepting. Returns None if nothing in the window
-    resembles it — that row stays ambiguous.
+) -> List[Optional[int]]:
+    """Assign each stored guess to one fresh band, GLOBALLY over the
+    page rather than greedily per row.
 
-    `used` enforces monotonicity: unresolved rows appear in band order,
-    so a band already claimed by an earlier row cannot be this row's.
-    Without this, two rows with near-empty guesses ("ن", "يو") both
-    score well against the same dotted-line band."""
-    lo = max(0, idx - window)
-    hi = min(len(crops), idx + window + 1)
-    best, best_score = None, 0.0
-    for j in range(lo, hi):
-        if used is not None and j in used:
-            continue
-        score = _similarity(guess, texts[j])
-        if score > best_score:
-            best, best_score = j, score
-    # A short guess ("ن", "يو") cannot reach a high text score against
-    # anything, so its bar is positional: the nearest unused band within
-    # the window wins, without a textual floor. A long guess must clear
-    # a real floor, because for it the text IS the evidence.
-    if len(guess) <= 4:
-        return best
-    return best if best_score >= 0.25 else None
+    The old per-row version committed each row to its best unused band
+    before considering the next row, and on pages where two rows both
+    resembled a third band the first row won it and the second was
+    pushed onto a wrong band. Measured suspect pairings (crop OCR more
+    similar to ANOTHER row's guess than to its own): 8 rows across
+    p21/p88/p92/p111. A small assignment search over the whole page
+    removes the failure mode — the global optimum has no reason to
+    mis-assign when the text is the evidence.
+
+    Rows with no acceptable band still get None (crop is a positional
+    best guess, recorded unverified), exactly as before."""
+    if not rows:
+        return []
+    # Build the candidate matrix: row i may take band j only if j is
+    # within `window` of the row's stored content-line index.
+    cand: List[List[Tuple[int, float]]] = []
+    for idx, guess in rows:
+        lo = max(0, idx - window)
+        hi = min(len(crops), idx + window + 1)
+        scored = [(j, _similarity(guess, texts[j])) for j in range(lo, hi)]
+        cand.append(scored)
+
+    n = len(rows)
+    # Exhaustive search over the joint assignment. n is tiny (a page has
+    # at most 13 unresolved rows; typical 2-3), so this is cheap. Bands
+    # are a limited resource: each is claimed at most once.
+    best_assign: List[Optional[int]] = [None] * n
+    best_score = -1.0
+
+    def _recurse(i: int, score: float, taken: set, assign: List[Optional[int]]):
+        nonlocal best_score, best_assign
+        if i == n:
+            if score > best_score:
+                best_score, best_assign = score, list(assign)
+            return
+        # Prune: even taking the max remaining score cannot beat the
+        # incumbent, so this branch cannot improve the optimum.
+        remaining_max = sum(
+            max((s for _, s in cand[k]), default=0.0) for k in range(i, n)
+        )
+        if score + remaining_max <= best_score:
+            return
+        tried_any = False
+        for j, s in cand[i]:
+            if j in taken:
+                continue
+            tried_any = True
+            assign[i] = j
+            _recurse(i + 1, score + s, taken | {j}, assign)
+            assign[i] = None
+        # A row may also be left unassigned (None) when nothing in its
+        # window is acceptable — that is the unverified-pairing path.
+        if not tried_any:
+            _recurse(i + 1, score, taken, assign)
+        elif i < n:
+            # leaving a row unassigned is always an option, and for a
+            # row whose best score is below the long-guess floor it is
+            # the correct one
+            _recurse(i + 1, score, taken, assign)
+
+    _recurse(0, 0.0, set(), [None] * n)
+
+    # A long guess must clear a textual floor: text IS its evidence. A
+    # short guess ("ن", "يو") cannot, so its bar is positional and the
+    # assignment above already placed it at the nearest unused band.
+    out: List[Optional[int]] = []
+    for (idx, guess), j in zip(rows, best_assign):
+        if j is None:
+            out.append(None)
+        elif len(guess) > 4 and _similarity(guess, texts[j]) < 0.25:
+            out.append(None)
+        else:
+            out.append(j)
+    return out
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -249,38 +297,44 @@ def main(argv: Optional[List[str]] = None) -> int:
             if not l.startswith("#") and l.strip()
         )
         counts_agree = len(crops) == n_content
-        used: set = set()
 
-        for idx, guess in rows:
-            if not counts_agree:
-                # The stored page and a fresh run disagree on how many
-                # lines survived the noise filter, so the stored index is
-                # only approximate. Search a small window and require the
-                # fresh OCR text to resemble the stored guess.
-                j = _pair_row(idx, guess, crops, texts, used=used)
-                if j is None:
-                    # Nothing in the window resembles the guess (OCR
-                    # stochasticity between runs hits short and dotted
-                    # guesses hardest). Fall back to the positional
-                    # crop and mark it UNVERIFIED-PAIRING so the
-                    # reviewer knows the band is a best guess, not a
-                    # confirmed match — and also write the neighbouring
-                    # bands so the real line is at most one crop away.
-                    j = min(idx, len(crops) - 1)
-                    if j < 0:
-                        print("p%-3d idx=%-2d NO BANDS AT ALL" % (page_no, idx))
-                        continue
-                    used.add(j)
-                    tag = " UNVERIFIED-PAIRING(band=%d)" % j
-                else:
-                    used.add(j)
-                    tag = " paired(band=%d)" % j
-            else:
-                if idx >= len(crops):
-                    print("p%-3d idx=%-2d OUT OF RANGE  %s"
-                          % (page_no, idx, guess[:34]))
+        if counts_agree:
+            # Stored line count and the fresh band count agree, so the
+            # stored index IS the band index: positional pairing, no
+            # search needed. This is the common case and it cannot
+            # mis-pair (the two lists are aligned by construction).
+            assignment: List[Optional[int]] = [
+                idx if idx < len(crops) else None for idx, _ in rows
+            ]
+        else:
+            # The stored page and a fresh run disagree on how many lines
+            # survived the noise filter, so the stored index is only
+            # approximate. Assign ALL rows jointly (not per-row) over a
+            # small window around each index, requiring the fresh OCR
+            # text to resemble the stored guess. A joint assignment is
+            # needed: with a greedy per-row choice, two rows that both
+            # resemble a third band let the first row claim it and push
+            # the second onto a wrong band.
+            assignment = _pair_rows(rows, crops, texts)
+
+        for (idx, guess), j in zip(rows, assignment):
+            if j is None and counts_agree:
+                print("p%-3d idx=%-2d OUT OF RANGE  %s"
+                      % (page_no, idx, guess[:34]))
+                continue
+            if j is None:
+                # Nothing in the window resembles the guess (OCR drift
+                # between the stored run and a fresh one hits short and
+                # dotted guesses hardest). Fall back to the positional
+                # crop and mark it UNVERIFIED-PAIRING so the reviewer
+                # knows the band is a best guess, not a confirmed match.
+                j = min(idx, len(crops) - 1)
+                if j < 0:
+                    print("p%-3d idx=%-2d NO BANDS AT ALL" % (page_no, idx))
                     continue
-                j, tag = idx, ""
+                tag = " UNVERIFIED-PAIRING(band=%d)" % j
+            else:
+                tag = " paired(band=%d)" % j
             name = "p%03d_%02d.png" % (page_no, j)
             cv2.imwrite(str(out / name), crops[j][:, :, ::-1])
             manifest[name] = {

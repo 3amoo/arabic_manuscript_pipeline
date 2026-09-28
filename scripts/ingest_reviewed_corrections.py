@@ -33,6 +33,16 @@ TWO PARTS, deliberately separate:
       genuine line. Triage comes FIRST in practice: mark the whole
       queue noise-vs-text, then transcribe only the real-text rows.
 
+      COVERS (optional, but required for full_line on verse rows):
+      "covers": "whole_line" | "hemistich" — which part of the crop the
+      reading actually spans. A verse-region row (verse_left /
+      verse_right) is ONE hemistich of a two-part line, but the crop
+      shows BOTH parts. A reading of only your half says nothing about
+      the other, so it cannot be graded full_line; it records as
+      "hemistich" and stays out of the gold layer until the other half
+      is also read. Omit the field for full_width / prose rows, where
+      the crop is one line and the reading covers all of it.
+
       PAIRING (automatic, not hand-written): when a record carries a
       "crop" pointing at a file the crop renderer produced, the ingester
       looks the crop up in data/review_crops/pairing.json. A crop the
@@ -102,6 +112,12 @@ VALID_QUEUES = (
     "vote_corrections",
 )
 VALID_TRIAGE = ("real_text", "not_text")
+# What part of the crop the reading spans. A verse row is one hemistich
+# of a two-part line; the crop shows both. A reading of one half cannot
+# be a full_line gold verse because the other half is unchecked, so the
+# two hemistich records stay out of the gold layer as a pair until both
+# are read. See the COVERS note in this module's docstring.
+VALID_COVERS = ("whole_line", "hemistich")
 # How much of the line the human actually confirmed. The distinction is
 # load-bearing: a partial entry's corrected_text is trustworthy only at
 # the flagged token — the rest of the line was never re-checked — so it
@@ -179,6 +195,24 @@ def load_corrections(path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
                 % (lineno, VALID_CONFIDENCE, conf)
             )
             continue
+        covers = rec.get("covers")
+        if covers is not None and covers not in VALID_COVERS:
+            problems.append(
+                "line %d: covers must be one of %s, got %r"
+                % (lineno, VALID_COVERS, covers)
+            )
+            continue
+        # A hemistich reading spans one half of a two-part verse line;
+        # the other half is unchecked, so it cannot be graded full_line.
+        # The two hemistich records upgrade together once both are read.
+        if covers == "hemistich" and rec.get("confidence") == "full_line":
+            problems.append(
+                "line %d: covers=hemistich cannot be confidence=full_line"
+                " — the crop shows both halves and only one was read."
+                " Use partial, or add the other hemistich's record."
+                % lineno
+            )
+            continue
         rec.setdefault("file", "page_%03d.txt" % rec["page"])
         valid.append(rec)
     return valid, problems
@@ -211,19 +245,32 @@ def build_gold_layer(
     textual match) are downgraded from full_line to partial here unless
     the record carries "pairing_confirmed": true. A whole-line reading
     is only as good as the band it was read from; see the PAIRING note
-    in this module's docstring."""
+    in this module's docstring.
+
+    Hemistich records are held back even at full_line: a verse row is
+    one half of a two-part line, so one half's reading leaves the other
+    unchecked. They enter the gold layer only when BOTH hemistichs of
+    the same page+line carry readings, which is checked per page here."""
     verses: List[str] = []
     alignment: List[Dict[str, Any]] = []
     by_page: Dict[int, List[Dict[str, Any]]] = {}
     n_partial = 0
     n_not_text = 0
     n_downgraded = 0
+    n_hemistich = 0
     for rec in valid:
         if rec.get("triage") == "not_text":
             n_not_text += 1
             continue
         if rec.get("confidence") != "full_line":
             n_partial += 1
+            if rec.get("covers") == "hemistich":
+                # A hemistich reading is partial by construction (the
+                # validator rejects hemistich+full_line), so it can never
+                # reach the gold layer on its own. Counted so the caller
+                # can report how many readings are waiting on the other
+                # half of the line.
+                n_hemistich += 1
             continue
         if _pairing_unverified(rec):
             if rec.get("pairing_confirmed"):
@@ -265,7 +312,7 @@ def build_gold_layer(
                 "source": "reviewed_corrections",
             }
         )
-    return verses, alignment, n_partial, n_not_text, n_downgraded
+    return verses, alignment, n_partial, n_not_text, n_downgraded, n_hemistich
 
 
 _PAIRING_CACHE: Dict[str, Dict[str, Any]] = {}
@@ -336,9 +383,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("  the record format.")
         return 0
 
-    verses, alignment, n_partial, n_not_text, n_downgraded = build_gold_layer(
-        valid, args.document
-    )
+    (
+        verses,
+        alignment,
+        n_partial,
+        n_not_text,
+        n_downgraded,
+        n_hemistich,
+    ) = build_gold_layer(valid, args.document)
     gt_dir = Path(args.gt_root) / args.document
     gt_file = gt_dir / "reviewed_corrections.clean.md"
     al_file = gt_dir / "reviewed_corrections.alignment.json"
@@ -357,6 +409,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     if n_downgraded:
         print("    of which downgraded:       %d  (crop pairing unverified —"
               " add pairing_confirmed once you checked the crop)" % n_downgraded)
+    if n_hemistich:
+        print("    of which hemistich:         %d  (one half of a two-part"
+              " verse line; needs the other half)" % n_hemistich)
     if n_not_text:
         print("  triaged not_text:          %d  (closed as non-text — no"
               " reading recorded)" % n_not_text)

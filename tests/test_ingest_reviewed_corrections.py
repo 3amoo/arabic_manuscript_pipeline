@@ -151,14 +151,14 @@ class TestPartialExclusion(unittest.TestCase):
 
     def test_only_full_line_becomes_gold(self):
         recs = self._recs(confidence="full_line")
-        verses, alignment, n_partial, _nnt, _ndg = build_gold_layer(recs, "doc")
+        verses, alignment, n_partial, _nnt, _ndg, _nh = build_gold_layer(recs, "doc")
         self.assertEqual(len(verses), 3)
         self.assertEqual(len(alignment), 1)
         self.assertEqual(n_partial, 0)
 
     def test_partial_held_back(self):
         recs = self._recs(confidence="partial")
-        verses, alignment, n_partial, _nnt, _ndg = build_gold_layer(recs, "doc")
+        verses, alignment, n_partial, _nnt, _ndg, _nh = build_gold_layer(recs, "doc")
         self.assertEqual(verses, [])
         self.assertEqual(alignment, [])
         self.assertEqual(n_partial, 3)
@@ -169,7 +169,7 @@ class TestPartialExclusion(unittest.TestCase):
             json.loads(_rec(page=6, line=2, confidence="partial")),
             json.loads(_rec(page=6, line=3, confidence="full_line")),
         ]
-        verses, alignment, n_partial, _nnt, _ndg = build_gold_layer(recs, "doc")
+        verses, alignment, n_partial, _nnt, _ndg, _nh = build_gold_layer(recs, "doc")
         self.assertEqual(len(verses), 2)
         self.assertEqual(n_partial, 1)
         # Verse numbering is dense over the ingested records only.
@@ -186,7 +186,7 @@ class TestPartialExclusion(unittest.TestCase):
             json.loads(_rec(page=6, line=1, confidence="full_line")),
             json.loads(_rec(page=9, line=1, confidence="partial")),
         ]
-        verses, alignment, n_partial, _nnt, _ndg = build_gold_layer(recs, "doc")
+        verses, alignment, n_partial, _nnt, _ndg, _nh = build_gold_layer(recs, "doc")
         self.assertEqual(len(verses), 1)
         self.assertEqual([int(a["page"]) for a in alignment], [6])
         self.assertEqual(n_partial, 1)
@@ -200,7 +200,7 @@ class TestGoldLayer(unittest.TestCase):
         ]
 
     def test_verses_numbered_without_colliding(self):
-        verses, _, _, _, _ = build_gold_layer(self._valid(), "doc")
+        verses, _, _, _, _, _ = build_gold_layer(self._valid(), "doc")
         # Synthetic numbering starts at 9001 so it cannot collide with the
         # hand-transcribed gold's own verse numbers.
         nums = [int(v.split()[0]) for v in verses]
@@ -210,7 +210,7 @@ class TestGoldLayer(unittest.TestCase):
         recs = self._valid(2) + [
             json.loads(_rec(page=9, line=1, corrected_text="بيت آخر"))
         ]
-        verses, alignment, _, _, _ = build_gold_layer(recs, "doc")
+        verses, alignment, _, _, _, _ = build_gold_layer(recs, "doc")
         self.assertEqual(len(alignment), 2)
         pages = sorted(int(a["page"]) for a in alignment)
         self.assertEqual(pages, [6, 9])
@@ -226,7 +226,7 @@ class TestGoldLayer(unittest.TestCase):
             json.loads(_rec(page=6, line=9, corrected_text="الثاني")),
             json.loads(_rec(page=6, line=2, corrected_text="الأول")),
         ]
-        verses, _, _, _, _ = build_gold_layer(recs, "doc")
+        verses, _, _, _, _, _ = build_gold_layer(recs, "doc")
         self.assertEqual(verses[0].split()[1], "الأول")
         self.assertEqual(verses[1].split()[1], "الثاني")
 
@@ -263,7 +263,7 @@ class TestTriageField(unittest.TestCase):
 
     def test_not_text_excluded_from_gold(self):
         rec = self._rec(triage="not_text")
-        verses, alignment, n_partial, n_not_text, n_downgraded = \
+        verses, alignment, n_partial, n_not_text, n_downgraded, _nh = \
             build_gold_layer([rec], "doc")
         self.assertEqual(verses, [])
         self.assertEqual(alignment, [])
@@ -273,7 +273,7 @@ class TestTriageField(unittest.TestCase):
 
     def test_real_text_behaves_as_before(self):
         rec = self._rec(triage="real_text")
-        verses, alignment, n_partial, n_not_text, _ = \
+        verses, alignment, n_partial, n_not_text, _, _ = \
             build_gold_layer([rec], "doc")
         self.assertEqual(len(verses), 1)
         self.assertEqual(n_not_text, 0)
@@ -293,6 +293,53 @@ class TestTriageField(unittest.TestCase):
         del rec["page"]
         valid, problems = load_corrections(_write([rec]))
         self.assertEqual(valid, [])
+
+
+class TestCoversField(unittest.TestCase):
+    """A verse-region row is ONE hemistich of a two-part line, but its
+    crop shows BOTH parts. A reading of only your half says nothing
+    about the other, so it cannot be graded full_line — the unchecked
+    half would pass into the gold layer as if it had been read."""
+
+    def _rec(self, **kw):
+        base = json.loads(_rec(page=6, line=14))
+        base.update(kw)
+        return base
+
+    def test_hemistich_full_line_rejected(self):
+        rec = self._rec(covers="hemistich", confidence="full_line")
+        valid, problems = load_corrections(_write([rec]))
+        self.assertEqual(valid, [])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("hemistich", problems[0])
+        self.assertIn("full_line", problems[0])
+
+    def test_hemistich_partial_accepted(self):
+        rec = self._rec(covers="hemistich", confidence="partial")
+        valid, problems = load_corrections(_write([rec]))
+        self.assertEqual(problems, [])
+        self.assertEqual(len(valid), 1)
+
+    def test_hemistich_held_out_of_gold(self):
+        rec = self._rec(covers="hemistich", confidence="partial")
+        verses, _, _, _, _, n_hemistich = build_gold_layer([rec], "doc")
+        self.assertEqual(verses, [])
+        self.assertEqual(n_hemistich, 1)
+
+    def test_whole_line_accepted_as_full_line(self):
+        rec = self._rec(covers="whole_line", confidence="full_line")
+        valid, problems = load_corrections(_write([rec]))
+        self.assertEqual(problems, [])
+        verses, _, _, _, _, n_hemistich = build_gold_layer(valid, "doc")
+        self.assertEqual(len(verses), 1)
+        self.assertEqual(n_hemistich, 0)
+
+    def test_bad_covers_value_rejected(self):
+        rec = self._rec(covers="mostly")
+        valid, problems = load_corrections(_write([rec]))
+        self.assertEqual(valid, [])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("covers", problems[0])
 
 
 class TestPairingGate(unittest.TestCase):
@@ -331,7 +378,7 @@ class TestPairingGate(unittest.TestCase):
         ingest_reviewed_corrections._PAIRING_CACHE["manifest"] = {
             "p006_14.png": {"verified": False}}
         rec = self._rec()
-        verses, alignment, n_partial, _, n_downgraded = \
+        verses, alignment, n_partial, _, n_downgraded, _nh = \
             build_gold_layer([rec], "doc")
         self.assertEqual(verses, [])
         self.assertEqual(n_partial, 1)
@@ -341,7 +388,7 @@ class TestPairingGate(unittest.TestCase):
         ingest_reviewed_corrections._PAIRING_CACHE["manifest"] = {
             "p006_14.png": {"verified": False}}
         rec = self._rec(pairing_confirmed=True)
-        verses, alignment, n_partial, _, n_downgraded = \
+        verses, alignment, n_partial, _, n_downgraded, _nh = \
             build_gold_layer([rec], "doc")
         self.assertEqual(len(verses), 1)
         self.assertEqual(n_downgraded, 0)
@@ -351,7 +398,7 @@ class TestPairingGate(unittest.TestCase):
         ingest_reviewed_corrections._PAIRING_CACHE["manifest"] = {
             "p006_14.png": {"verified": True}}
         rec = self._rec()
-        verses, _, _, _, n_downgraded = build_gold_layer([rec], "doc")
+        verses, _, _, _, n_downgraded, _nh = build_gold_layer([rec], "doc")
         self.assertEqual(len(verses), 1)
         self.assertEqual(n_downgraded, 0)
 
@@ -359,14 +406,14 @@ class TestPairingGate(unittest.TestCase):
         ingest_reviewed_corrections._PAIRING_CACHE["manifest"] = {
             "p006_14.png": {"verified": False}}
         rec = json.loads(_rec(page=6, line=14, confidence="full_line"))
-        verses, _, _, _, n_downgraded = build_gold_layer([rec], "doc")
+        verses, _, _, _, n_downgraded, _nh = build_gold_layer([rec], "doc")
         self.assertEqual(len(verses), 1)
         self.assertEqual(n_downgraded, 0)
 
     def test_crop_not_in_manifest_untouched(self):
         ingest_reviewed_corrections._PAIRING_CACHE["manifest"] = {}
         rec = self._rec(crop="some_other_crop.png")
-        verses, _, _, _, n_downgraded = build_gold_layer([rec], "doc")
+        verses, _, _, _, n_downgraded, _nh = build_gold_layer([rec], "doc")
         self.assertEqual(len(verses), 1)
         self.assertEqual(n_downgraded, 0)
 
