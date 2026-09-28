@@ -19,14 +19,39 @@ oversized-line split + noise drop) to get the same ordered band list,
 then takes the band at the guess's content-line index.
 
 CAVEAT (measured, not assumed): a fresh full OCR run is NOT
-byte-reproducible against the stored page file — the stored page 111
-has 19 content lines while a fresh run keeps 27, and normalized text
-alignment over the two lists finds zero equal blocks. The band list is
-geometric (deterministic given the same image and detectors), but the
-noise filter's crop set is not. So the crop is rendered from the band
-geometry, and the guess text is shown next to it as a label, not as a
-verification. When the counts disagree the row is flagged AMBIGUOUS
-rather than silently mis-paired.
+byte-reproducible against every stored page file. The divergence is
+NOT in the OCR engine — two consecutive cold runs of the same page
+produce byte-identical output (verified on pages 20, 44, 111), so
+PaddleOCR recognition is deterministic. The divergence is upstream:
+the stored corpus was generated 2026-09-21 and the venv was rebuilt
+2026-09-22 19:08 (dependency upgrade), after which the same page
+yields slightly different OCR text on some lines (page 20: 6 lines
+differ, page confidence 89.8% -> 90.6%). A warm OCR cache masks this
+completely — cached crops replay byte-identically — which is exactly
+why the smoke range (24-26, regenerated after the rebuild) reproduces
+while most of the corpus does not. See docs/reproducibility.md.
+
+The band list is geometric (deterministic given the same image and
+detectors), but the noise filter's crop set follows the OCR text, so
+the crop is rendered from the band geometry and the guess text is
+shown next to it as a label, not as a verification. When the counts
+disagree the row is flagged rather than silently mis-paired.
+
+HOW PAIRING IS GRADED (and why it matters downstream): when the
+stored line count and a fresh run disagree, the row is paired by
+text similarity over a small window and the outcome is recorded in
+a manifest next to the crops (pairing.json), one entry per crop:
+
+    "p020_09.png": {"verified": true,  "guess": "...", "page": 20}
+    "p111_13.png": {"verified": false, "guess": "...", "page": 111}
+
+`verified: false` means the band was taken positionally as a best
+guess — no fresh OCR text in the window resembled the stored guess,
+so the crop may not be the line the guess came from. The ingest layer
+reads this manifest and REFUSES to grade such a row full_line unless
+the reviewer explicitly confirms the crop shows the right line
+(see ingest_reviewed_corrections.py). Rendering a crop is cheap;
+trusting a mispaired crop as verified gold is not.
 
 USAGE:
   myenv/bin/python scripts/render_review_crops.py [--pages 1,2,3] \
@@ -36,6 +61,7 @@ USAGE:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -200,6 +226,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     rendered = 0
     ambiguous = 0
+    manifest: Dict[str, Dict[str, Any]] = {}
     pages = sorted(page_dir.glob("page_*.txt"))
     for pf in pages:
         page_no = int(pf.stem.split("_")[1])
@@ -256,14 +283,35 @@ def main(argv: Optional[List[str]] = None) -> int:
                 j, tag = idx, ""
             name = "p%03d_%02d.png" % (page_no, j)
             cv2.imwrite(str(out / name), crops[j][:, :, ::-1])
+            manifest[name] = {
+                "page": page_no,
+                "content_line_index": idx,
+                "guess": guess,
+                # A band taken positionally (no fresh OCR text in the
+                # window resembled the stored guess) is a best guess,
+                # not a confirmed match. ingest_reviewed_corrections.py
+                # refuses to grade these full_line without explicit
+                # confirmation — see HOW PAIRING IS GRADED above.
+                "verified": tag.strip().startswith("paired"),
+                "tag": tag.strip(),
+            }
             print("p%-3d idx=%-2d -> %-18s %-34s%s"
                   % (page_no, idx, name, guess[:32], tag))
             rendered += 1
             if not counts_agree:
                 ambiguous += 1
 
+    manifest_path = out / "pairing.json"
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=1) + "\n",
+        encoding="utf-8",
+    )
+    n_unverified = sum(1 for v in manifest.values() if not v["verified"])
     print()
-    print("rendered %d crop(s) to %s (%d ambiguous)" % (rendered, out, ambiguous))
+    print("rendered %d crop(s) to %s (%d ambiguous)"
+          % (rendered, out, ambiguous))
+    print("pairing manifest: %s (%d unverified — excluded from full_line"
+          " unless you confirm the crop shows the line)" % (manifest_path, n_unverified))
     return 0
 
 

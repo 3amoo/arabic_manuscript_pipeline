@@ -229,19 +229,28 @@ def _write_review_queue(queue: List[Dict[str, Any]], path: Path) -> None:
         "in context; this file is the flat to-do list across the whole",
         "book, ordered by page and then by lowest confidence first.",
         "",
+        "TRIAGE FIRST: mark each row `not_text` if the crop shows a",
+        "decorative rule, smudge, or flourish rather than writing — the",
+        "row is then closed with no transcription needed. Only real-text",
+        "rows get a corrected reading and a confidence tag. Render the",
+        "crops with scripts/render_review_crops.py before judging.",
+        "",
         f"**{len(queue)} line(s) need review.**",
         "",
-        "| page | region | paddle conf | unverified guess |",
-        "|------|--------|-------------|------------------|",
+        "| page | region | paddle conf | unverified guess | triage |",
+        "|------|--------|-------------|------------------|--------|",
     ]
     for item in queue:
         conf = (f"{item['confidence']:.2f}"
                 if item.get("confidence") is not None else "?")
         guess = (item.get("guess") or "").replace("|", "\\|").replace("\n", " ")
+        # An empty checkbox column: the reviewer fills it in by hand
+        # (not_text / real_text), which is the whole point of triage —
+        # the tool cannot decide what is writing and what is decoration.
         lines.append(
-            f"| {item['page']} | {item.get('region')} | {conf} | {guess} |")
+            f"| {item['page']} | {item.get('region')} | {conf} | {guess} |  |")
     if not queue:
-        lines.append("| — | none | — | queue is empty |")
+        lines.append("| — | none | — | queue is empty | |")
     lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
 

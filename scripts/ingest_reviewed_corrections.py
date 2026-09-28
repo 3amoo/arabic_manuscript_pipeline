@@ -15,15 +15,36 @@ TWO PARTS, deliberately separate:
      reviewing a queue line, append one JSON record to
      data/reviewed_corrections.jsonl:
 
-        {"queue": "manual_review_queue",
-         "page": 6, "line": 14, "file": "page_006.txt",
-         "ocr_text": "ما the OCR actually said",
-         "corrected_text": "ما the text should say",
-         "confidence": "full_line",
-         "crop": "optional path or reference to the source image crop",
-         "note": "optional one-line rationale"}
+         {"queue": "manual_review_queue",
+          "page": 6, "line": 14, "file": "page_006.txt",
+          "ocr_text": "ما the OCR actually said",
+          "corrected_text": "ما the text should say",
+          "confidence": "full_line",
+          "crop": "optional path or reference to the source image crop",
+          "note": "optional one-line rationale"}
 
-      `confidence` is REQUIRED and must be one of:
+      TRIAGE (optional): "triage": "not_text" closes the row as a
+      non-text artifact (decorative rule, smudge, flourish) — the
+      detector segmented something that is not writing. No
+      corrected_text and no confidence are needed for such a row: the
+      record documents the decision, which is the whole point, and the
+      row is excluded from the gold layer because there is nothing to
+      transcribe. Use "triage": "real_text" (or omit the field) for a
+      genuine line. Triage comes FIRST in practice: mark the whole
+      queue noise-vs-text, then transcribe only the real-text rows.
+
+      PAIRING (automatic, not hand-written): when a record carries a
+      "crop" pointing at a file the crop renderer produced, the ingester
+      looks the crop up in data/review_crops/pairing.json. A crop the
+      renderer could not textually match to its guess ("verified":
+      false) is a positional best guess, and a full_line grade on it
+      would assert a whole-line reading of a band that may not even be
+      the line the guess came from. Such records are downgraded to
+      partial automatically unless you add "pairing_confirmed": true —
+      your explicit statement that you looked at the crop and it does
+      show the line. Nothing guesses for you either way.
+
+    `confidence` is REQUIRED (for real_text rows) and must be one of:
         "full_line" — you read and confirmed the WHOLE line, not just
           the flagged token. Becomes a gold verse.
         "partial"   — you confirmed only the flagged token; the rest of
@@ -69,11 +90,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 REQUIRED_FIELDS = ("queue", "page", "line", "ocr_text", "corrected_text", "confidence")
+# triage is optional but, when present, must be one of these. The point
+# of triage is to let a reviewer close a row as NOT TEXT (a decorative
+# rule, a smudge, a flourish the detector segmented as a line) without
+# inventing a transcription for it. Those rows still get a record — the
+# decision itself is the durable artifact — but they carry no reading
+# and cannot enter the gold layer.
 VALID_QUEUES = (
     "manual_review_queue",
     "genealogy_crossref_review",
     "vote_corrections",
 )
+VALID_TRIAGE = ("real_text", "not_text")
 # How much of the line the human actually confirmed. The distinction is
 # load-bearing: a partial entry's corrected_text is trustworthy only at
 # the flagged token — the rest of the line was never re-checked — so it
@@ -97,6 +125,33 @@ def load_corrections(path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
         except json.JSONDecodeError as exc:
             problems.append("line %d: not valid JSON (%s)" % (lineno, exc))
             continue
+
+        # Triage is the first decision a reviewer makes, and it relaxes
+        # the field requirements rather than adding one: a not_text row
+        # has no reading to record, so corrected_text/confidence are not
+        # its concern. The record is still kept — "this is not writing"
+        # is a durable, reviewable decision.
+        triage = rec.get("triage")
+        if triage is not None and triage not in VALID_TRIAGE:
+            problems.append(
+                "line %d: triage must be one of %s, got %r"
+                % (lineno, VALID_TRIAGE, triage)
+            )
+            continue
+        if triage == "not_text":
+            # Triage relaxes the reading requirements, not the identity
+            # requirements: a decision that cannot be traced to a page
+            # is useless as a durable artifact.
+            if not rec.get("page") or not rec.get("queue"):
+                problems.append(
+                    "line %d: triage=not_text still requires page and"
+                    " queue (the row must be identifiable)" % lineno
+                )
+                continue
+            rec.setdefault("file", "page_%03d.txt" % rec["page"])
+            valid.append(rec)
+            continue
+
         missing = [f for f in REQUIRED_FIELDS if not rec.get(f)]
         if missing:
             problems.append(
@@ -145,15 +200,44 @@ def build_gold_layer(
     would let unchecked text pass as verified. Partial records stay in
     the append-only record file pending upgrade; their count is returned
     so the caller can report it separately rather than blending it into
-    the headline metric (plans/NEXT_DEVELOPMENT_PLAN_2.md Phase 2 step 4-5)."""
+    the headline metric (plans/NEXT_DEVELOPMENT_PLAN_2.md Phase 2 step 4-5).
+
+    not_text records never reach the gold layer at all — there is no
+    text to transcribe, so there is nothing to be gold about. They are
+    counted so the caller can report how many rows were closed as
+    non-text artifacts, which is itself the deliverable of triage.
+
+    Crops flagged unverified by the renderer (positional best guess, no
+    textual match) are downgraded from full_line to partial here unless
+    the record carries "pairing_confirmed": true. A whole-line reading
+    is only as good as the band it was read from; see the PAIRING note
+    in this module's docstring."""
     verses: List[str] = []
     alignment: List[Dict[str, Any]] = []
     by_page: Dict[int, List[Dict[str, Any]]] = {}
     n_partial = 0
+    n_not_text = 0
+    n_downgraded = 0
     for rec in valid:
+        if rec.get("triage") == "not_text":
+            n_not_text += 1
+            continue
         if rec.get("confidence") != "full_line":
             n_partial += 1
             continue
+        if _pairing_unverified(rec):
+            if rec.get("pairing_confirmed"):
+                pass
+            else:
+                rec = dict(rec)
+                rec["confidence"] = "partial"
+                rec.setdefault(
+                    "note",
+                    "downgraded from full_line: crop pairing unverified",
+                )
+                n_downgraded += 1
+                n_partial += 1
+                continue
         by_page.setdefault(rec["page"], []).append(rec)
     n = 9000
     for page in sorted(by_page):
@@ -181,7 +265,45 @@ def build_gold_layer(
                 "source": "reviewed_corrections",
             }
         )
-    return verses, alignment, n_partial
+    return verses, alignment, n_partial, n_not_text, n_downgraded
+
+
+_PAIRING_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def _load_pairing_manifest() -> Dict[str, Any]:
+    """data/review_crops/pairing.json, read once. Absent or unreadable
+    means no crop was graded, which the caller treats as 'no opinion'
+    rather than as a failure — the manifest is a rendering artifact, not
+    a required input."""
+    if "manifest" in _PAIRING_CACHE:
+        return _PAIRING_CACHE["manifest"]
+    path = Path("data/review_crops/pairing.json")
+    if not path.is_file():
+        _PAIRING_CACHE["manifest"] = {}
+        return {}
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        _PAIRING_CACHE["manifest"] = {}
+        return {}
+    _PAIRING_CACHE["manifest"] = manifest
+    return manifest
+
+
+def _pairing_unverified(rec: Dict[str, Any]) -> bool:
+    """True when this record's crop is a positional best guess the
+    renderer could not textually match. Records without a crop field, or
+    whose crop is not in the manifest, are untouched: the renderer only
+    grades crops it produced."""
+    crop = rec.get("crop")
+    if not crop:
+        return False
+    manifest = _load_pairing_manifest()
+    entry = manifest.get(Path(str(crop)).name)
+    if entry is None:
+        return False
+    return not entry.get("verified", False)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -214,7 +336,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("  the record format.")
         return 0
 
-    verses, alignment, n_partial = build_gold_layer(valid, args.document)
+    verses, alignment, n_partial, n_not_text, n_downgraded = build_gold_layer(
+        valid, args.document
+    )
     gt_dir = Path(args.gt_root) / args.document
     gt_file = gt_dir / "reviewed_corrections.clean.md"
     al_file = gt_dir / "reviewed_corrections.alignment.json"
@@ -227,9 +351,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     for q, c in sorted(by_queue.items(), key=lambda kv: -kv[1]):
         print("    %-26s %d" % (q, c))
     print()
-    n_full = len(valid) - n_partial
+    n_full = len(valid) - n_partial - n_not_text
     print("  full-line confirmed:       %d  (enters the gold layer)" % n_full)
     print("  token-only (partial):      %d  (held back — not gate-grade)" % n_partial)
+    if n_downgraded:
+        print("    of which downgraded:       %d  (crop pairing unverified —"
+              " add pairing_confirmed once you checked the crop)" % n_downgraded)
+    if n_not_text:
+        print("  triaged not_text:          %d  (closed as non-text — no"
+              " reading recorded)" % n_not_text)
+    print()
+    print("  gate progress: %d full-line of ~50 needed (Phase 3)"
+          % n_full)
     print()
     print("  gold layer would add: %d verses across %d pages"
           % (len(verses), len(alignment)))
@@ -250,7 +383,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             print()
             print("  NOTE: %d partial record(s) were NOT ingested. They" % n_partial)
             print("  remain in the record file; upgrade them to")
-            print("  confidence: full_line once the whole line is checked.")
+            print("  confidence: full_line once the whole line is checked")
+            print("  (and the crop pairing is confirmed, for downgraded rows).")
+        if n_not_text:
+            print()
+            print("  NOTE: %d not_text record(s) were recorded but produced"
+                  " no gold verse — that is the intended outcome of triage,"
+                  " not an error." % n_not_text)
     else:
         print()
         print("  DRY RUN - nothing written. Re-run with --apply.")

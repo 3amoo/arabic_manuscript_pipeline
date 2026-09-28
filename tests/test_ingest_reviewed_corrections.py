@@ -19,6 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import scripts.ingest_reviewed_corrections as ingest_reviewed_corrections  # noqa: E402
 from scripts.ingest_reviewed_corrections import (  # noqa: E402
     build_gold_layer,
     load_corrections,
@@ -36,6 +37,19 @@ def _rec(**kw):
     }
     base.update(kw)
     return json.dumps(base, ensure_ascii=False)
+
+
+def _write(records):
+    """Write records (dicts or pre-serialized strings) to a temp file
+    and return its Path, for load_corrections round-trip tests."""
+    td = tempfile.mkdtemp()
+    p = Path(td) / "c.jsonl"
+    lines = [
+        r if isinstance(r, str) else json.dumps(r, ensure_ascii=False)
+        for r in records
+    ]
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return p
 
 
 class TestLoadCorrections(unittest.TestCase):
@@ -137,14 +151,14 @@ class TestPartialExclusion(unittest.TestCase):
 
     def test_only_full_line_becomes_gold(self):
         recs = self._recs(confidence="full_line")
-        verses, alignment, n_partial = build_gold_layer(recs, "doc")
+        verses, alignment, n_partial, _nnt, _ndg = build_gold_layer(recs, "doc")
         self.assertEqual(len(verses), 3)
         self.assertEqual(len(alignment), 1)
         self.assertEqual(n_partial, 0)
 
     def test_partial_held_back(self):
         recs = self._recs(confidence="partial")
-        verses, alignment, n_partial = build_gold_layer(recs, "doc")
+        verses, alignment, n_partial, _nnt, _ndg = build_gold_layer(recs, "doc")
         self.assertEqual(verses, [])
         self.assertEqual(alignment, [])
         self.assertEqual(n_partial, 3)
@@ -155,7 +169,7 @@ class TestPartialExclusion(unittest.TestCase):
             json.loads(_rec(page=6, line=2, confidence="partial")),
             json.loads(_rec(page=6, line=3, confidence="full_line")),
         ]
-        verses, alignment, n_partial = build_gold_layer(recs, "doc")
+        verses, alignment, n_partial, _nnt, _ndg = build_gold_layer(recs, "doc")
         self.assertEqual(len(verses), 2)
         self.assertEqual(n_partial, 1)
         # Verse numbering is dense over the ingested records only.
@@ -172,7 +186,7 @@ class TestPartialExclusion(unittest.TestCase):
             json.loads(_rec(page=6, line=1, confidence="full_line")),
             json.loads(_rec(page=9, line=1, confidence="partial")),
         ]
-        verses, alignment, n_partial = build_gold_layer(recs, "doc")
+        verses, alignment, n_partial, _nnt, _ndg = build_gold_layer(recs, "doc")
         self.assertEqual(len(verses), 1)
         self.assertEqual([int(a["page"]) for a in alignment], [6])
         self.assertEqual(n_partial, 1)
@@ -186,7 +200,7 @@ class TestGoldLayer(unittest.TestCase):
         ]
 
     def test_verses_numbered_without_colliding(self):
-        verses, _, _ = build_gold_layer(self._valid(), "doc")
+        verses, _, _, _, _ = build_gold_layer(self._valid(), "doc")
         # Synthetic numbering starts at 9001 so it cannot collide with the
         # hand-transcribed gold's own verse numbers.
         nums = [int(v.split()[0]) for v in verses]
@@ -196,7 +210,7 @@ class TestGoldLayer(unittest.TestCase):
         recs = self._valid(2) + [
             json.loads(_rec(page=9, line=1, corrected_text="بيت آخر"))
         ]
-        verses, alignment, _ = build_gold_layer(recs, "doc")
+        verses, alignment, _, _, _ = build_gold_layer(recs, "doc")
         self.assertEqual(len(alignment), 2)
         pages = sorted(int(a["page"]) for a in alignment)
         self.assertEqual(pages, [6, 9])
@@ -212,7 +226,7 @@ class TestGoldLayer(unittest.TestCase):
             json.loads(_rec(page=6, line=9, corrected_text="الثاني")),
             json.loads(_rec(page=6, line=2, corrected_text="الأول")),
         ]
-        verses, _, _ = build_gold_layer(recs, "doc")
+        verses, _, _, _, _ = build_gold_layer(recs, "doc")
         self.assertEqual(verses[0].split()[1], "الأول")
         self.assertEqual(verses[1].split()[1], "الثاني")
 
@@ -225,6 +239,136 @@ class TestGoldLayer(unittest.TestCase):
             before = gt.read_bytes()
             build_gold_layer(self._valid(), "doc")
             self.assertEqual(gt.read_bytes(), before)
+
+
+class TestTriageField(unittest.TestCase):
+    """A reviewer triages each queue row before transcribing it: is it
+    writing at all, or a decorative rule / smudge the detector
+    segmented as a line? A not_text row carries no reading and never
+    becomes gold — the decision itself is the artifact."""
+
+    def _rec(self, **kw):
+        base = json.loads(_rec(page=6, line=14))
+        base.update(kw)
+        return base
+
+    def test_not_text_needs_no_reading(self):
+        rec = self._rec(triage="not_text")
+        del rec["corrected_text"]
+        del rec["confidence"]
+        valid, problems = load_corrections(_write([rec]))
+        self.assertEqual(problems, [])
+        self.assertEqual(len(valid), 1)
+        self.assertEqual(valid[0]["triage"], "not_text")
+
+    def test_not_text_excluded_from_gold(self):
+        rec = self._rec(triage="not_text")
+        verses, alignment, n_partial, n_not_text, n_downgraded = \
+            build_gold_layer([rec], "doc")
+        self.assertEqual(verses, [])
+        self.assertEqual(alignment, [])
+        self.assertEqual(n_not_text, 1)
+        self.assertEqual(n_partial, 0)
+        self.assertEqual(n_downgraded, 0)
+
+    def test_real_text_behaves_as_before(self):
+        rec = self._rec(triage="real_text")
+        verses, alignment, n_partial, n_not_text, _ = \
+            build_gold_layer([rec], "doc")
+        self.assertEqual(len(verses), 1)
+        self.assertEqual(n_not_text, 0)
+
+    def test_bad_triage_value_rejected(self):
+        rec = self._rec(triage="maybe")
+        valid, problems = load_corrections(_write([rec]))
+        self.assertEqual(valid, [])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("triage", problems[0])
+
+    def test_not_text_still_needs_queue_and_page(self):
+        # Triage relaxes the reading requirements, not the identity
+        # requirements: a record that cannot be traced to a page is
+        # useless as a durable decision.
+        rec = self._rec(triage="not_text")
+        del rec["page"]
+        valid, problems = load_corrections(_write([rec]))
+        self.assertEqual(valid, [])
+
+
+class TestPairingGate(unittest.TestCase):
+    """A crop the renderer paired only positionally (verified: false)
+    is a best guess: the band may not be the line the guess came from.
+    Grading such a row full_line would assert a whole-line reading of a
+    possibly-wrong band, so it is downgraded to partial unless the
+    reviewer explicitly confirms the crop."""
+
+    def _rec(self, crop="p006_14.png", **kw):
+        base = json.loads(_rec(page=6, line=14, confidence="full_line"))
+        base["crop"] = crop
+        base.update(kw)
+        return base
+
+    def _manifest(self, verified):
+        import tempfile
+        d = Path(tempfile.mkdtemp())
+        crops = d / "review_crops"
+        crops.mkdir()
+        (crops / "pairing.json").write_text(
+            json.dumps({
+                "p006_14.png": {"page": 6, "verified": verified,
+                                "guess": "x", "tag": ""},
+            }, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return d
+
+    def setUp(self):
+        # _pairing_unverified caches the manifest per process; the tests
+        # each write their own, so the cache must not leak between them.
+        ingest_reviewed_corrections._PAIRING_CACHE.clear()
+
+    def test_unverified_crop_downgraded_to_partial(self):
+        ingest_reviewed_corrections._PAIRING_CACHE["manifest"] = {
+            "p006_14.png": {"verified": False}}
+        rec = self._rec()
+        verses, alignment, n_partial, _, n_downgraded = \
+            build_gold_layer([rec], "doc")
+        self.assertEqual(verses, [])
+        self.assertEqual(n_partial, 1)
+        self.assertEqual(n_downgraded, 1)
+
+    def test_pairing_confirmed_keeps_full_line(self):
+        ingest_reviewed_corrections._PAIRING_CACHE["manifest"] = {
+            "p006_14.png": {"verified": False}}
+        rec = self._rec(pairing_confirmed=True)
+        verses, alignment, n_partial, _, n_downgraded = \
+            build_gold_layer([rec], "doc")
+        self.assertEqual(len(verses), 1)
+        self.assertEqual(n_downgraded, 0)
+        self.assertEqual(n_partial, 0)
+
+    def test_verified_crop_untouched(self):
+        ingest_reviewed_corrections._PAIRING_CACHE["manifest"] = {
+            "p006_14.png": {"verified": True}}
+        rec = self._rec()
+        verses, _, _, _, n_downgraded = build_gold_layer([rec], "doc")
+        self.assertEqual(len(verses), 1)
+        self.assertEqual(n_downgraded, 0)
+
+    def test_record_without_crop_untouched(self):
+        ingest_reviewed_corrections._PAIRING_CACHE["manifest"] = {
+            "p006_14.png": {"verified": False}}
+        rec = json.loads(_rec(page=6, line=14, confidence="full_line"))
+        verses, _, _, _, n_downgraded = build_gold_layer([rec], "doc")
+        self.assertEqual(len(verses), 1)
+        self.assertEqual(n_downgraded, 0)
+
+    def test_crop_not_in_manifest_untouched(self):
+        ingest_reviewed_corrections._PAIRING_CACHE["manifest"] = {}
+        rec = self._rec(crop="some_other_crop.png")
+        verses, _, _, _, n_downgraded = build_gold_layer([rec], "doc")
+        self.assertEqual(len(verses), 1)
+        self.assertEqual(n_downgraded, 0)
 
 
 if __name__ == "__main__":
