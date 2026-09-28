@@ -58,3 +58,4 @@ data/archive/
 
 # Local baseline snapshots (not tracked - compare-only artifacts)
 specs/004-ink-density-gate/pre-gate-baseline/
+data/review_crops/
