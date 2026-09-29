@@ -72,6 +72,16 @@ class TestLoadCorrections(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertIn("corrected_text", problems[0])
 
+    def test_line_zero_is_not_missing(self):
+        # `line` is a zero-based index into the page, so the first text
+        # line of a page is a legitimate value that a falsy check would
+        # wrongly reject as a missing field.
+        r = json.loads(_rec(line=0))
+        valid, problems = self._load([json.dumps(r, ensure_ascii=False)])
+        self.assertEqual(problems, [])
+        self.assertEqual(len(valid), 1)
+        self.assertEqual(valid[0]["line"], 0)
+
     def test_bad_json_rejected(self):
         valid, problems = self._load(["{not json"])
         self.assertEqual(valid, [])

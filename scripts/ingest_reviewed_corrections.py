@@ -168,7 +168,12 @@ def load_corrections(path: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
             valid.append(rec)
             continue
 
-        missing = [f for f in REQUIRED_FIELDS if not rec.get(f)]
+        # `line` is a zero-based index, so line 0 is legitimate and must
+        # not trip the falsy check the other required fields use.
+        missing = [
+            f for f in REQUIRED_FIELDS
+            if rec.get(f) is None or (f != "line" and not rec.get(f))
+        ]
         if missing:
             problems.append(
                 "line %d: missing required field(s) %s" % (lineno, missing)
