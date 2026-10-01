@@ -155,7 +155,7 @@
    "source": "reviewed_corrections"
   },
   {
-   "page": "48",
+   "page": "44",
    "gt_start": "9014",
    "gt_end": "9014",
    "status": "matched",
@@ -169,7 +169,7 @@
    "source": "reviewed_corrections"
   },
   {
-   "page": "49",
+   "page": "48",
    "gt_start": "9015",
    "gt_end": "9015",
    "status": "matched",
@@ -183,7 +183,7 @@
    "source": "reviewed_corrections"
   },
   {
-   "page": "50",
+   "page": "49",
    "gt_start": "9016",
    "gt_end": "9016",
    "status": "matched",
@@ -197,7 +197,7 @@
    "source": "reviewed_corrections"
   },
   {
-   "page": "53",
+   "page": "50",
    "gt_start": "9017",
    "gt_end": "9017",
    "status": "matched",
@@ -211,7 +211,7 @@
    "source": "reviewed_corrections"
   },
   {
-   "page": "65",
+   "page": "53",
    "gt_start": "9018",
    "gt_end": "9018",
    "status": "matched",
@@ -225,9 +225,23 @@
    "source": "reviewed_corrections"
   },
   {
-   "page": "72",
+   "page": "65",
    "gt_start": "9019",
    "gt_end": "9019",
+   "status": "matched",
+   "confidence": "1.0",
+   "recovered": "True",
+   "out_verses_count": "1",
+   "gt_verses_count": "1",
+   "skipped_gt": "0",
+   "hallucination_verses": "[]",
+   "anchor_distance": "0",
+   "source": "reviewed_corrections"
+  },
+  {
+   "page": "72",
+   "gt_start": "9020",
+   "gt_end": "9020",
    "status": "matched",
    "confidence": "1.0",
    "recovered": "True",
