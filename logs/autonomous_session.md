@@ -213,3 +213,17 @@ what needs human eyes.
   unverified 25 -> 22, exactly 3 crops restored (p006_02, p021_04, p021_05),
   all 7 mis-pairs still blocked. Added 5 alignment tests (11 total in the
   module). 409 tests pass, verify_all green.
+- [t21] Audited all 36 in-GT hemistich records for more p059_10-class wrong-half
+  errors. Found ZERO. The first pass flagged 9 rows where the other half
+  outscored the registered one; all 9 turned out to be crops containing BOTH
+  halves - the margin was crop width, not a misread half. A real wrong-half
+  looks like p059_10 pre-fix (registered half scoring 0.19, i.e. absent); no
+  row here is absent.
+- [t22] Byproduct: 32 of 36 hemistich crops show the full verse. For 14 the
+  registered verse is the UNIQUE winner across all 620 verses by margin >=0.10,
+  and a midpoint split of the crop confirms each hemistich sits on its own side.
+  Those 14 are ready to upgrade hemistich -> whole_line (gate 20 -> 34); the
+  text is GT and the frame is verified, so no new human reading is needed.
+  Sheet at logs/wholeline_upgrade_sheet.md registers nothing. The other 6 have
+  margins 0.00-0.09 and need a human; p063_11 and p060_13 are notable because a
+  DIFFERENT verse wins outright (margins 0.06 and 0.01).
