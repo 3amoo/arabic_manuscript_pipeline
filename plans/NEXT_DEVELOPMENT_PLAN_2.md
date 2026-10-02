@@ -94,6 +94,21 @@ combining two signals that exist today but aren't combined.
    no crop reading — the vault form is already in each row. At roughly
    5 seconds per row that's about 6 minutes of review for the
    highest-value error class in the corpus.
+
+   **Correction, 2026-10-02 (step 2 done — Phase 1 is complete):** all
+   67 base-letter rows have since been human-judged.
+   `logs/vault_crossref_status.md` records **37 APPLIED / 30 REJECTED /
+   0 open** (the 37 APPLIED rows resolve to the 30 distinct vault
+   corrections already registered in `data/reviewed_corrections.jsonl`
+   under queue `vote_corrections`; عقبة→عتبة and حام→سام are counted
+   REJECTED after their reversion in `logs/vault_reverts.jsonl`). No
+   crop reading was needed — the estimate above was right about the
+   cost and wrong only about it being outstanding. **The only open vault
+   rows are the 56 diacritics-only ones, and they cannot move CER**:
+   both sides already agree on the base letters, so settling them is a
+   diacritization-normalisation task, not an OCR-error task. Step 3
+   below is therefore diacritics-only from here, and Phase 1's CER-moving
+   work is finished — there is nothing left to wait on a human for.
 3. **Then** run the same mechanism on the 56 diacritics-only rows (lower
    value — CER can't move from these, only the diacritics-accuracy metric
    can).
@@ -132,6 +147,39 @@ number. Everything else moves diacritics or UX, not CER.
    full-line-confirmed entries for the DER/CER numbers, and reporting
    partial-entry count separately as "additional token-level corrections
    pending full-line review," not blended into the headline metric.
+
+   **Correction, 2026-10-02 (wiring fixed — this is one command now):**
+   the throwaway harness this step referred to was needed because
+   `measure_der.py` could not consume the ingester's gold layer at all.
+   The incompatibilities were found by that harness (see
+   `docs/gold_expansion_measurement.md` §2) and have since been closed —
+   string `page`/`gt_start`/`gt_end` types, the 9001+ synthetic verse id
+   being used as a positional GT index, and the alignment being per-page
+   where the reviewed layer is one specific line per row, plus two
+   digit- and line-index bugs found alongside them (Western vs
+   Arabic-Indic verse numbers, and the record `line` field being a queue
+   marker position rather than a content-line index). The defect-by-defect
+   fix log is in that report's **"Wiring gap — FIXED"** section. The
+   measurement is now exactly the two commands this step calls for:
+
+   ```
+   ./myenv/bin/python scripts/ingest_reviewed_corrections.py --apply
+   ./myenv/bin/python scripts/measure_der.py \
+     --alignment "data/ground_truth/عمود النسب نسخة 2/reviewed_corrections.alignment.json" \
+     --gt      "data/ground_truth/عمود النسب نسخة 2/reviewed_corrections.clean.md"
+   ```
+
+   Re-measured today on the current 20 full_line records: **438 diacritic
+   positions across 18 pages, base-letter CER 31.1%, DER 9.4%, diacritic
+   accuracy 90.6%** — agreeing with `docs/gold_expansion_measurement.md`
+   §3 exactly on DER, accuracy, positions and pages. That report's 21.3%
+   CER is not a disagreement: it is the character-weighted corpus CER,
+   whereas `measure_der.py`'s 31.1% headline is the mean per-verse CER;
+   both figures are recorded side by side in §3 of the report. The
+   step-5 caveats in that document still stand and are not weakened by
+   the wiring fix — the full_line set is still 20 of ~50 and still
+   bimodal and selection-biased, so §5 must be read before the numbers
+   are quoted.
 6. **Target:** ~50–100 *full-line-confirmed* reviewed lines specifically
    (not 50–100 total rows of any confirmation type) before treating Phase
    3's gate as ready to re-run with a real signal.

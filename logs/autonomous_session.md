@@ -127,3 +127,18 @@ what needs human eyes.
   a content-line index (off by one on every prose page). Now the step-5
   measurement is one command; positions 127 -> 438, CER 64.0% -> 31.1%.
   The 127-position run was scoring 9 vault rows against the wrong line.
+- [t11] Re-measured end to end with the fixed wiring (one command, no
+  harness): positions 127 -> 438, base-letter CER 64.0% -> 31.1%, DER
+  9.4%, diacritic accuracy 90.6%, 18 pages / 20 verses. Matches
+  `docs/gold_expansion_measurement.md` §3 exactly on DER / accuracy /
+  positions / pages — its 21.3% CER is the weighted corpus figure vs
+  `measure_der.py`'s per-verse mean, both recorded there, so the two
+  reports cross-validate the fix. Removed one duplicate same-day row the
+  tool's `--history` append left in `docs/accuracy_history.md`; the
+  251-file evidence invariant still PASSES (`--apply` rewrote the gold
+  layer byte-identical). 7 NOT_TEXT p.111 index dot-leader rows closed
+  by the parallel agent (`logs/not_text_closures.md`) — they never enter
+  gold, so the headline is unchanged. Phase 1 CONFIRMED COMPLETE: all 67
+  base-letter vault rows are human-judged (37 APPLIED / 30 REJECTED /
+  0 open, `logs/vault_crossref_status.md`); only the 56 diacritics-only
+  rows remain open, and they cannot move CER.
