@@ -193,6 +193,27 @@ VERIFY_FLOOR = 0.45
 # renderer already declines to text-search a guess <= 4 chars), so it can
 # never be text-verified and is reported unverified rather than assumed.
 MIN_VERIFIABLE_GUESS = 5
+# A band that fails the floor can still be positionally trusted if the page
+# itself is provably aligned. Measured on the mis-paired pages vs a clean one:
+#
+#   p6  (correct)  15 bands / 15 content lines, median diagonal 0.89
+#   p84 (mis-pair) 16 bands / 20 content lines
+#   p90 (mis-pair) 18 bands / 19 content lines
+#   p92 (mis-pair) 19 bands / 18 content lines
+#   p94 (mis-pair) 12 bands / 19 content lines
+#   p111(mis-pair) 27 bands / 19 content lines
+#
+# Every mis-paired page DISAGREES on the count, because a line the stored run
+# kept was dropped (or kept) differently by a fresh noise-filter pass, which
+# shifts every later band by one. The median diagonal stays high on those pages
+# anyway (0.79-0.87) because the shift only breaks a few rows, so the median
+# alone is NOT a safe test. Requiring BOTH an exact count agreement and a high
+# median over the readable diagonal is what separates them: with equal counts
+# and no offset, a band that scores low is unreadable, not misplaced.
+#
+# This is what restores an OCR-unreadable band like p006_02 (stored "وي" vs
+# fresh "Sلداليو", 0.22) without also restoring a real mis-pair.
+PAGE_ALIGN_MEDIAN = 0.70
 # Hard-evidence mis-pair findings, kept outside the (gitignored) manifest so a
 # re-render cannot silently restore a `verified` claim that has been disproved.
 OVERRIDES_PATH = Path("data/review_crop_pairing_overrides.json")
@@ -200,13 +221,44 @@ OVERRIDES_PATH = Path("data/review_crop_pairing_overrides.json")
 
 def _load_overrides() -> Dict[str, Dict[str, Any]]:
     """crops whose pairing was disproved by comparing the crop against every
-    line on its own page. The text floor cannot catch every mis-pair, so these
+    line of its own page. The text floor cannot catch every mis-pair, so these
     are forced unverified regardless of score — see
     data/review_crop_pairing_overrides.json for the bar for adding one."""
     if not OVERRIDES_PATH.exists():
         return {}
     data = json.loads(OVERRIDES_PATH.read_text(encoding="utf-8"))
     return data.get("overrides", {})
+
+
+def _page_is_aligned(
+    texts: List[str],
+    content_lines: List[str],
+) -> Tuple[bool, float]:
+    """Whether band j and content line j line up with no offset.
+
+    A band that fails VERIFY_FLOOR can still be positionally trusted if the
+    page itself is provably aligned — the low score then means the band is
+    unreadable rather than misplaced. Returns (aligned, median diagonal).
+
+    Two conditions, both required. The band count must equal the content-line
+    count: every mis-paired page in the audit disagreed on the count because a
+    line the stored run kept was dropped differently by a fresh noise-filter
+    pass, shifting every later band by one. And the readable diagonal must hold
+    a high median, so a page that agrees on the count only by coincidence does
+    not pass. The median alone is NOT sufficient — it stays 0.79-0.87 on the
+    mis-paired pages because a shift only breaks a few rows."""
+    n = min(len(texts), len(content_lines))
+    if n == 0 or len(texts) != len(content_lines):
+        return False, 0.0
+    diag = [
+        _similarity(texts[j], content_lines[j]) for j in range(n)
+        if len(content_lines[j]) >= MIN_VERIFIABLE_GUESS
+    ]
+    if not diag:
+        return False, 0.0
+    diag.sort()
+    median = diag[len(diag) // 2]
+    return median >= PAGE_ALIGN_MEDIAN, round(median, 3)
 
 
 def _pair_rows(
@@ -345,6 +397,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
         counts_agree = len(crops) == n_content
 
+        content_lines = [
+            l.strip() for l in pf.read_text(encoding="utf-8").splitlines()
+            if not l.startswith("#") and l.strip()
+        ]
+        page_aligned, page_median = _page_is_aligned(texts, content_lines)
+
         if counts_agree:
             # Stored line count and the fresh band count agree, so the
             # stored index IS the band index: positional pairing, no
@@ -397,6 +455,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                     j, band_score)
             else:
                 pair_tag = "UNVERIFIED-TEXT(band=%d,text=%.2f)" % (j, band_score)
+            # A band that fails the floor may still be positionally sound: the
+            # page's band list can be provably aligned with its content lines,
+            # which makes a low-scoring band unreadable rather than misplaced.
+            # This restores OCR-unreadable bands without restoring real
+            # mis-pairs, which all fail the count check (see _page_is_aligned).
+            if not confirmed and page_aligned and j < len(content_lines):
+                confirmed = True
+                pair_tag = ("paired-positional(band=%d,text=%.2f,page-median=%.2f)"
+                            % (j, band_score, page_median))
             # A disproved pairing outranks any score: the text floor exists to
             # catch drift it can see, and this crop was disproved by a stronger
             # test (compared against every line on its own page).

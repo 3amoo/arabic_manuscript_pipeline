@@ -105,3 +105,42 @@ def subprocess_tracked():
 
 if __name__ == "__main__":
     unittest.main()
+class TestPageAlignmentFallback(unittest.TestCase):
+    """The floor demotes unreadable bands; page alignment restores the ones that
+    are positionally provable. The distinction is what keeps p006_02 (unreadable,
+    correctly paired) while leaving the 7 mis-pairs blocked."""
+
+    def test_count_disagreement_is_not_aligned(self):
+        # Every mis-paired page in the audit disagreed on the count, because a
+        # line the stored run kept was dropped differently by a fresh
+        # noise-filter pass. That offset is what misplaces later bands.
+        aligned, _ = R._page_is_aligned(["a"] * 10, ["a"] * 9)
+        self.assertFalse(aligned)
+
+    def test_equal_counts_with_high_median_is_aligned(self):
+        texts = ["نص طويل قابل للقراءة"] * 12
+        lines = ["نص طويل قابل للقراءة"] * 12
+        aligned, median = R._page_is_aligned(texts, lines)
+        self.assertTrue(aligned)
+        self.assertGreaterEqual(median, R.PAGE_ALIGN_MEDIAN)
+
+    def test_equal_counts_alone_is_not_enough(self):
+        # Equal counts with garbage on the diagonal must fail: a page can agree
+        # on the count and still be unreadable, and assuming positional trust
+        # there is exactly the index arithmetic this module replaced.
+        texts = ["zxq"] * 8
+        lines = ["mmn"] * 8
+        aligned, _ = R._page_is_aligned(texts, lines)
+        self.assertFalse(aligned)
+
+    def test_short_lines_are_excluded_from_the_median(self):
+        # A 2-char line cannot be scored meaningfully, so it must not drag the
+        # median down and block an otherwise-aligned page.
+        good = "نص طويل قابل للقراءة جدا"
+        texts = [good, "وي", good, good]
+        lines = [good, "وي", good, good]
+        aligned, _ = R._page_is_aligned(texts, lines)
+        self.assertTrue(aligned)
+
+    def test_empty_pages_are_not_aligned(self):
+        self.assertEqual(R._page_is_aligned([], []), (False, 0.0))

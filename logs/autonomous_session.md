@@ -198,3 +198,18 @@ what needs human eyes.
   dry runs and the 20-verse reading came from a stale alignment. After applying:
   19 verses, CER 31.1 -> 30.7, DER 9.4 unchanged. Added tests/test_review_crop_pairing.py
   and wired it into verify_all TEST_MODULES.
+- [t19] Restored p006_02 and automated the fix. Its band is OCR-unreadable
+  (stored "وي" vs fresh "Sلداليو", 0.22) so the floor demoted a correctly
+  PAIRED crop. Proof: page 6 has 15 bands and 15 content lines and the
+  diagonal band_j vs cl_j scores 0.73-0.97 for every band except this one -
+  no index offset, so band 2 is cl2 and the low score is an unreadable band,
+  not a wrong one. Gate back to 20; re-measured 20 verses, CER 31.1, DER 9.4.
+- [t20] Generalised that into _page_is_aligned so the renderer restores this
+  class itself. Two conditions, both required: exact count agreement AND a
+  high median over the readable diagonal. The median ALONE is unsafe - it
+  reads 0.79-0.87 on every mis-paired page because a shift only breaks a few
+  rows - but every mis-paired page disagrees on the count (16v20, 18v19,
+  19v18, 12v19, 27v19), which is what the count check catches. Re-rendered:
+  unverified 25 -> 22, exactly 3 crops restored (p006_02, p021_04, p021_05),
+  all 7 mis-pairs still blocked. Added 5 alignment tests (11 total in the
+  module). 409 tests pass, verify_all green.
