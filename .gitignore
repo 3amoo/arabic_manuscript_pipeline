@@ -59,3 +59,18 @@ data/archive/
 # Local baseline snapshots (not tracked - compare-only artifacts)
 specs/004-ink-density-gate/pre-gate-baseline/
 data/review_crops/
+
+# Scratch scripts (throwaway verification harnesses)
+ascii_render.py
+inspect_crops.py
+locate_crop.py
+match_band.py
+match_matrix.py
+ocr_p32.py
+ocr_p32b.py
+ocr_page_bands.py
+render_region.py
+verify_batch2.py
+verify_retracted.py
+verify_retracted2.py
+logs/fallback_events.jsonl
