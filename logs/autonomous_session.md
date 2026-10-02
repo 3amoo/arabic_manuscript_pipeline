@@ -160,3 +160,14 @@ what needs human eyes.
   corrected_text = v498's left hemistich, pairing_confirmed = false, note
   documents the crop's real line and that the row's own line stays
   unread. batch3_verification.md corrected too.
+- [t14] Batch 4-6 pairing audit (logs/batch456_pairing_audit.md), prompted by
+  the p059_10 lesson that a high GT-match score can mask a wrong reading. All
+  57 crops on pages 68-111 re-OCRed and compared against EVERY line on their own
+  page. Split: 7 strong mis-pairs, 3 suspect, 4 clean-pairing-but-unreadable,
+  43 clean-and-readable. Corroborates all 4 mis-pairs the decision sheet named
+  and ADDS three it missed: p111_01 (margin +1.00, own sim 0.00 vs cl1 1.00 —
+  the worst pairing defect in the set), p111_14 (own sim 0.00), p111_17
+  (+0.35). Also confirms the sheet's suspicion that p107_09's "cleanest OCR in
+  the batch" (conf 0.79) is confidently wrong — its text matches no page line.
+  No records created or changed; pages 68-111 remain out of GT scope, so all 43
+  sound crops still require human eyes before full_line.
