@@ -41,8 +41,16 @@ endings — the poem's rhyme in the -at/-ya/-ya rhyme family inflates
 baseline similarity between adjacent verses). The aligned verse still
 won in all six, and the crop OCR text resolves every one:
 
-- **p059_10** — OCR `بالْكَشْفِ، بَلْ لِّنَيْلِ الاسْتِقَامَة` is verbatim
-  GT v498's second hemistich.
+- **p059_10** — CORRECTED 2026-10-02. The row was registered as v498's
+  *right* hemistich on the strength of `وقَلَّ مَنْ بِالْكَشْفِ` scoring
+  v498 highest (0.47 vs 0.33 for v497). But `وقَلَّ مَنْ بِالْكَشْفِ` is
+  v498's **left** hemistich, and the row's region is verse_right, so the
+  registration took the wrong half of the right verse. Worse, the queue
+  row's own content line is v497 (cl10) while the crop shows v498 (cl11) —
+  a mis-pair. The record is now `corrected_text` = v498's left hemistich,
+  `pairing_confirmed: false`, with a note naming the crop's real line. The
+  row's own line (v497's right hemistich, the stored guess
+  `بَالْكَشْفِ، بَلْ لِّنَيْلِ الاسْتِقَامَة`) remains unread.
 - **p060_13** — OCR `خَارِجَةُ القَاِلُ مَنْ أَصْمَاهّ ... أَرَدْتُ عَمْراً`
   carries both halves of v515 (the `أَرَدْتُ عَمْراً وأَرَادَ اللهُ`
   hadith quote is unmistakable).

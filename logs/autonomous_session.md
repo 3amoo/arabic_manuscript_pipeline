@@ -142,3 +142,21 @@ what needs human eyes.
   base-letter vault rows are human-judged (37 APPLIED / 30 REJECTED /
   0 open, `logs/vault_crossref_status.md`); only the 56 diacritics-only
   rows remain open, and they cannot move CER.
+- [t12] Gemini cross-reader attempt. Probe found Gemini is the ONLY live
+  vision backend (both keys pass the blank-white control, return real
+  diacritized Arabic); OpenRouter's free vision model (llama-4-scout) is
+  blind — it passes the control but returns a different Quranic verse for
+  every crop regardless of content; Groq has zero vision models; Atria is
+  text-only by design. The runner (`scripts/gemini_cross_reader.py`) got
+  1 crop read (agreement 0.97) before BOTH keys hit the free-tier image
+  quota (429). The control gate correctly aborted rather than recording
+  96 unverified readings. The run is resumable — re-run the script once
+  the quota resets (it skips crops already in gemini_crossread.jsonl).
+- [t13] p059_10 registration ERROR found and fixed. The batch-3 record
+  registered v498's RIGHT hemistich, but the crop OCR reads v498's LEFT
+  hemistich — the row's region is verse_right, so the reading covered a
+  half the region does not name. The queue row's own line is v497 (cl10)
+  while the crop shows v498 (cl11), i.e. a mis-pair. Corrected:
+  corrected_text = v498's left hemistich, pairing_confirmed = false, note
+  documents the crop's real line and that the row's own line stays
+  unread. batch3_verification.md corrected too.
