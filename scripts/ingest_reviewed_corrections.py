@@ -94,6 +94,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -291,29 +292,56 @@ def build_gold_layer(
                 n_partial += 1
                 continue
         by_page.setdefault(rec["page"], []).append(rec)
+    # Resolve each record's content-line index for measure_der.py, which
+    # scores that exact line of the page. The record's own "line" field is
+    # the review queue's marker position and is NOT a stable content-line
+    # index: on prose pages it tracks the raw file index, on verse pages
+    # the marker's own row, and it is off by one or more in both cases.
+    # Resolve to the content-line index that actually carries the record's
+    # ocr_text, preferring the crop manifest (which the renderer verified
+    # the guess against) and otherwise locating ocr_text in the page.
+    manifest = _load_pairing_manifest()
+    for rec in valid:
+        rec["_line_index"] = _resolve_line_index(rec, manifest, document)
+    # Verse IDs start at 9001 so they never collide with the
+    # hand-transcribed gold's 1..620 numbering. measure_der.py slices the
+    # gt list positionally, so the alignment also carries a layer-local
+    # span ("gt_start"/"gt_end" are 1-based into THIS layer's verse list)
+    # alongside the absolute ids printed in the .clean.md file.
     n = 9000
+    local = 0
     for page in sorted(by_page):
         recs = sorted(by_page[page], key=lambda r: r["line"])
         start = end = None
         for rec in recs:
             n += 1
+            local += 1
             verses.append("%d %s" % (n, rec["corrected_text"].strip()))
             if start is None:
-                start = n
-            end = n
+                start = local
+            end = local
+        # Native types, matching data/evaluation_reports/008/alignment.json
+        # (int page/counts, float confidence). measure_der.py formats page
+        # with :03d, so a string here crashes the harness.
+        #
+        # "lines" carries each reviewed row's content-line index, which
+        # measure_der.py uses to score that exact line (the reviewed layer
+        # is one specific line per row, not a verse-block like the main
+        # alignment, and most rows are prose without a ' ... ' separator).
         alignment.append(
             {
-                "page": str(page),
-                "gt_start": str(start),
-                "gt_end": str(end),
+                "page": page,
+                "gt_start": start,
+                "gt_end": end,
+                "lines": [rec["_line_index"] for rec in recs],
                 "status": "matched",
-                "confidence": "1.0",
-                "recovered": "True",
-                "out_verses_count": str(len(recs)),
-                "gt_verses_count": str(len(recs)),
-                "skipped_gt": "0",
-                "hallucination_verses": "[]",
-                "anchor_distance": "0",
+                "confidence": 1.0,
+                "recovered": True,
+                "out_verses_count": len(recs),
+                "gt_verses_count": len(recs),
+                "skipped_gt": 0,
+                "hallucination_verses": [],
+                "anchor_distance": 0,
                 "source": "reviewed_corrections",
             }
         )
@@ -356,6 +384,61 @@ def _pairing_unverified(rec: Dict[str, Any]) -> bool:
     if entry is None:
         return False
     return not entry.get("verified", False)
+
+
+def _content_lines(page: int, document: str) -> List[str]:
+    """The content lines of a page file (header/comment lines and blanks
+    skipped), in file order — the same list the crop renderer indexes into
+    and the same one measure_der.py's _out_content_lines builds."""
+    p = Path("data/output") / document / "raw_text" / ("page_%03d.txt" % page)
+    if not p.is_file():
+        return []
+    return [l.strip() for l in p.read_text(encoding="utf-8").splitlines()
+            if l.strip() and not l.startswith("#")]
+
+
+def _skel(s: str) -> str:
+    """Diacritics and non-Arabic-letter chars stripped, spaces removed —
+    a comparison key that survives OCR-level noise on the same line."""
+    s = re.sub(r"[ً-ٰٟۖ-ۭـ]", "", s)
+    return re.sub(r"[^ء-ي]", "", s)
+
+
+def _resolve_line_index(rec: Dict[str, Any],
+                        manifest: Dict[str, Any],
+                        document: str) -> Optional[int]:
+    """The content-line index this record's OCR text actually sits at.
+
+    Priority:
+    1. the crop manifest's content_line_index, which the renderer verified
+       the guess against — authoritative when a crop exists;
+    2. the content line whose skeleton contains the record's ocr_text
+       skeleton, which locates vote_corrections rows that carry no crop;
+    3. the record's own "line" field, last resort, and only when it lands
+       inside the page.
+
+    The record's "line" field is NOT used earlier: it is the review
+    queue's marker position and is off by one or more against the
+    content-line index on most pages, so trusting it silently scores the
+    wrong line in measure_der.py."""
+    crop = rec.get("crop")
+    if crop:
+        entry = manifest.get(Path(str(crop)).name)
+        if entry is not None:
+            idx = entry.get("content_line_index")
+            if isinstance(idx, int):
+                return idx
+    lines = _content_lines(rec["page"], document)
+    needle = _skel(rec.get("ocr_text", ""))
+    if needle:
+        for i, line in enumerate(lines):
+            hay = _skel(line)
+            if needle[:12] and needle[:12] in hay:
+                return i
+    line = rec.get("line")
+    if isinstance(line, int) and 0 <= line < len(lines):
+        return line
+    return None
 
 
 def main(argv: Optional[List[str]] = None) -> int:

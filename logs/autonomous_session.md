@@ -92,3 +92,38 @@ what needs human eyes.
   human-read (batches 2-3, upgrade path is you confirming a crop) or
   out_of_gt_scope (batches 4-6, rows 61-118, pages >=68 — human crop
   reading only). Nothing further can be auto-registered honestly.
+- [t8] Three parallel agents run (batch 4-6 triage, gold measurement,
+  vault-crossref status):
+  - **Batch 4-6 triage** (`logs/batch456_triage.md`): all 55 crops for the
+    58 out_of_gt_scope rows re-OCR'd once. 32 RECOVERED / 19 DEGRADED /
+    7 NOT_TEXT (the 7 are all dot-leader rows on p.111's index). 4 crops
+    are genuinely mis-paired (crop shows a different line than the stored
+    guess): p084_15, p090_11, p092_01, p094_07.
+  - **Gold measurement** (`docs/gold_expansion_measurement.md`): headline
+    full_line-only CER 31.1% / WER 39.2% / DER 9.4% (acc 90.6%) over 438
+    diacritic positions on 18 pages. Partials correctly held out. The set
+    is 5.4% of the historical baseline and bimodal, so it is NOT a stable
+    corpus estimate — Phase 3's gate still needs ~30 more full_line.
+  - **Vault crossref** (`logs/vault_crossref_status.md`): the plan's
+    Phase 1 premise is SATISFIED. All 67 base-letter disagreements are
+    already human-judged — 37 APPLIED (the 30 vault corrections), 30
+    REJECTED. The only open rows are the 56 diacritics-only ones, which
+    cannot move CER. Nothing left to auto-register from the vault.
+- [t9] Crop-pairing audit (`logs/crop_pairing_audit.md`): re-OCR'd all 117
+  crops to check the manifest's `verified` flag. 14 verified crops score
+  below 0.45 on re-OCR — the flag's 0.25 floor is a weak guarantee, not a
+  proof the crop shows the row's line. **No registered record sits on a
+  genuinely mis-paired crop** (the 4 flagged registered records — p002_08,
+  p020_09, p040_08, p059_10 — were each re-verified against GT and are
+  correct; the apparent mismatch was my own raw-line vs content-line
+  indexing error, now documented so it isn't repeated). The 9 mis-pairs
+  are all unregistered batch 4-6 rows and are corrected in the triage sheet.
+- [t10] FIXED the ingest->measure wiring (found by the measurement agent).
+  Five defects made `measure_der.py` unusable on the reviewed layer:
+  string page types (crashed `:03d`), the 9001+ absolute id used as a
+  positional slice (0 verses scored), no per-line targeting (prose rows
+  have no ` ... ` separator), `_gt_verses` only stripping Arabic-Indic
+  digits, and the record `line` field being a marker position rather than
+  a content-line index (off by one on every prose page). Now the step-5
+  measurement is one command; positions 127 -> 438, CER 64.0% -> 31.1%.
+  The 127-position run was scoring 9 vault rows against the wrong line.

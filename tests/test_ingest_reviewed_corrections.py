@@ -188,8 +188,11 @@ class TestPartialExclusion(unittest.TestCase):
         # The alignment span must match the ingested count, not the
         # record count: 2 verses, not 3.
         self.assertEqual(int(alignment[0]["gt_verses_count"]), 2)
-        self.assertEqual(int(alignment[0]["gt_start"]), 9001)
-        self.assertEqual(int(alignment[0]["gt_end"]), 9002)
+        # The alignment span is layer-local (1-based into THIS layer's
+        # verse list) so measure_der.py can slice the gt list
+        # positionally; the absolute 9001+ ids stay in the .clean.md file.
+        self.assertEqual(int(alignment[0]["gt_start"]), 1)
+        self.assertEqual(int(alignment[0]["gt_end"]), 2)
 
     def test_partial_on_other_page_does_not_create_entry(self):
         recs = [

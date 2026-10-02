@@ -367,3 +367,4 @@ escalating specifically on "diacritic likely missing here" instead of
 actually target the DER problem. This needs live backend access to
 answer and is recorded here as a research question only, deliberately
 not scoped as a task.
+| 2026-10-02 | 31.1% | 9.4% | 90.6% | 18 |

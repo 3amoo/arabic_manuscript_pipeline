@@ -292,14 +292,18 @@ def score_verse(ref_verse: str, hyp_verse: str) -> Dict[str, object]:
 
 
 def _gt_verses(gt_file: Path) -> List[str]:
-    """Fully-vocalized GT verses, with the leading Arabic-Indic number
-    stripped. Mirrors evaluate_cer._raw_gt_slice()."""
+    """Fully-vocalized GT verses, with the leading verse number stripped.
+    Mirrors evaluate_cer._raw_gt_slice().
+
+    Accepts BOTH Arabic-Indic digits (the hand-transcribed gold) and
+    Western digits (the reviewed-corrections layer numbers its synthetic
+    verses 9001+)."""
     verses = []
     for line in gt_file.read_text(encoding="utf-8").splitlines():
         s = line.strip()
         if not s or s.startswith("#"):
             continue
-        m = re.match(r"^\s*[\u0660-\u0669]+[\s\u060c\u061b\.]*", s)
+        m = re.match(r"^\s*[\u0660-\u06690-9]+[\s\u060c\u061b\.]*", s)
         if m:
             s = s[m.end():]
         if s.strip():
@@ -317,6 +321,19 @@ def _out_verses(raw_path: Path) -> List[str]:
             continue
         if " ... " in s:
             out.append(s)
+    return out
+
+
+def _out_content_lines(raw_path: Path) -> List[str]:
+    """All content lines of a page (prose included), in file order. Used
+    only for reviewed-corrections alignment entries, which name the exact
+    content-line index each reviewed verse came from."""
+    out = []
+    for line in raw_path.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        out.append(s)
     return out
 
 
@@ -348,7 +365,17 @@ def measure_corpus(
             continue
 
         ref_verses = gt[entry["gt_start"] - 1: entry["gt_end"]]
-        hyp_verses = _out_verses(raw_path)
+        if entry.get("source") == "reviewed_corrections":
+            # Reviewed entries are one specific content line each, named
+            # by index in the entry's "lines" list (verse rows pair
+            # positionally with the verses in the gt_start..gt_end span).
+            hyp_all = _out_content_lines(raw_path)
+            line_idxs = entry.get("lines") or []
+            hyp_verses = [
+                hyp_all[i] for i in line_idxs if 0 <= i < len(hyp_all)
+            ]
+        else:
+            hyp_verses = _out_verses(raw_path)
         n = min(len(ref_verses), len(hyp_verses))
         if n == 0:
             continue
