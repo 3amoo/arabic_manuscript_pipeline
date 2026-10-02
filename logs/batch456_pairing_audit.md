@@ -117,7 +117,59 @@ l.30" and the queue target as "l.21", while this audit reports cl19/cl14. Those 
 lines under two numbering schemes (raw file line vs content-line index after headers are
 stripped) — verified to land on identical text.
 
-## Consequences for the review sheet
+## Addendum: `verified: true` was not a text claim, and the correct band is not text-findable
+
+Two follow-ups, both established by re-rendering the affected pages and re-reading the
+renderer's pairing logic.
+
+### The `verified` flag meant "index arithmetic", not "text confirmed"
+
+All 7 group-A crops carried `verified: true` in `data/review_crops/pairing.json`. That flag is
+**not** evidence that the crop matches its guess. `render_review_crops.py` sets it from how the
+band was *chosen* — `"paired" in tag` — which is true for both the positional shortcut
+(`counts_agree`: stored index **is** band index, no text check at all) and the text-searched
+path. It never compares the rendered band to the stored guess. So `verified: true` means "we
+used an index", and the guard at `ingest_reviewed_corrections.py:281` that refuses to grade an
+unverified crop `full_line` was **inert for these 7 rows** — the flag it checks was asserting a
+confirmation that the audit disproves.
+
+The renderer does have a textual floor (0.25, `render_review_crops.py:247`), but it is far too
+low to catch this: `p084_15`'s 66-char guess scores 0.30 against the *wrong* band and passes.
+
+`verified` has been retracted to `false` on all 7, each tagged `MISPAIRED(...)` with a
+`pairing_audit` block naming the line the crop actually shows, its similarity, and the source.
+Nothing else in the manifest changed.
+
+### Why the crops were NOT re-rendered at the "correct" band
+
+Re-rendering all 117 crops and scoring guess-vs-assigned-band similarity shows the score **cannot
+separate mis-pairs from sound pairings**:
+
+| guess-vs-band score | crops | of which mis-paired |
+|---|---|---|
+| 0.00–0.25 | 3 | 0 |
+| 0.25–0.35 | 9 | 3 |
+| 0.35–0.45 | 5 | 3 |
+| 0.45–0.55 | 12 | 0 |
+| 0.55–0.70 | 24 | 1 |
+| 0.70–1.00 | 57 | 0 |
+
+6 of the 7 mis-pairs sit under 0.45, but so do 17 crops that are paired correctly, and
+`p111_14` — whose crop scores **0.00** against its own line — reaches 0.60 against the wrong one.
+The score compares a *stored guess* from an older OCR run against a *fresh* band read, so it
+carries OCR drift, and page-111 dot-leader lines are near-identical to each other by
+construction. Any floor that catches these 6 also condemns ~17 good crops; any floor that
+preserves the good ones lets `p111_14` through.
+
+So the correct band was **not** re-rendered for these rows. Picking one would mean guessing from
+noise, which is the same failure that produced `p059_10`. Only `p092_01` has even a suggestive
+case (its guess prefers band2 at 0.54 over the current band1 at 0.38), and 0.54 is not a
+confirmation.
+
+**What this needs:** a human reading the crop, or a vision model once image quota allows. Both
+have to answer "which line of this page is this image?", which OCR on a drifted guess cannot.
+Until then these 10 queue rows are correctly *blocked* — `verified: false` is the honest state,
+and it stops them from being registered as `full_line` off a crop that shows the wrong line.
 
 - **7 crops (10 queue rows)** must not be read as filed. `p090_11` and `p092_01` are `BOTH`
   rows, so each costs two rows. These need re-cropping at the correct band, not review.

@@ -149,6 +149,10 @@ TEST_MODULES = [
     "tests.test_genealogy_crossref",
     "tests.test_restore_tashkeel",
     "tests.test_ingest_reviewed_corrections",
+    # The pairing flag that ingest's full_line guard reads must stay a
+    # textual claim; it was index arithmetic and silently disabled the guard
+    # for 7 mis-paired crops (logs/batch456_pairing_audit.md).
+    "tests.test_review_crop_pairing",
 ]
 SMOKE_ARGS = ["--start", "24", "--end", "26"]
 DOC = "عمود النسب نسخة 2"

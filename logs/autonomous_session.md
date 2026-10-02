@@ -171,3 +171,30 @@ what needs human eyes.
   the batch" (conf 0.79) is confidently wrong — its text matches no page line.
   No records created or changed; pages 68-111 remain out of GT scope, so all 43
   sound crops still require human eyes before full_line.
+- [t15] Retracted verified=true on the 7 mis-paired crops. Re-rendering the
+  affected pages showed pairing.json's `verified` flag is set from HOW a band
+  was chosen ("paired" in tag), never from comparing the band to the guess — so
+  it asserts "we used an index", not "the text matches". All 7 group-A crops
+  carried verified=true, which left the full_line guard at
+  ingest_reviewed_corrections.py:281 inert for exactly the rows that most needed
+  it. The renderer's 0.25 textual floor cannot catch this (p084_15's 66-char
+  guess scores 0.30 against the wrong band).
+- [t16] Declined to auto re-crop the mis-paired rows. Scored guess-vs-band
+  similarity for all 117 crops: 6 of 7 mis-pairs fall under 0.45, but so do 17
+  correctly-paired crops, and p111_14 (own-line score 0.00) reaches 0.60 against
+  the wrong band. The score carries OCR drift and page-111 dot-leader lines are
+  near-identical by construction, so no floor separates them. Choosing a band
+  would be guessing from noise — the p059_10 failure mode. These rows stay
+  verified=false and need a human or a vision model to re-crop.
+- [t17] Made `verified` a textual claim and re-rendered. All 117 crops re-rendered:
+  25 unverified (was 3). 6 of the 7 proven mis-pairs are caught by the 0.45 floor.
+  p111_14 escapes it at 0.60, so its finding is pinned in the new tracked
+  data/review_crop_pairing_overrides.json (pairing.json is gitignored, so a finding
+  written only there is lost on the next render). All 7 now blocked.
+- [t18] Gate 20 -> 19: the fix demoted p006_02 (2-char guess, 0.22) and briefly
+  p002_08 (0.444 vs 0.45 floor). p002_08 restored via its EXISTING audit finding in
+  logs/crop_pairing_audit.md; p006_02 left demoted for a human, no confirmation
+  invented. Caught that ingest needs --apply to write the layer - earlier runs were
+  dry runs and the 20-verse reading came from a stale alignment. After applying:
+  19 verses, CER 31.1 -> 30.7, DER 9.4 unchanged. Added tests/test_review_crop_pairing.py
+  and wired it into verify_all TEST_MODULES.

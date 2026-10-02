@@ -8,7 +8,7 @@ re-measure the expanded gold using **only full_line-confirmed entries** for the 
 DER/CER, with the partial-entry count reported separately rather than blended in.
 
 **Bottom line up front:** the headline numbers are measurable but are **not a stable
-corpus estimate**. The full_line set is 20 records, 18 pages, 438 diacritic positions —
+corpus estimate**. The full_line set is 19 records, 18 pages, 438 diacritic positions —
 5.4% of the historical baseline's 8,072 positions — and it is strongly bimodal and
 selection-biased. Read the caveats in §5 before quoting any number from §3.
 
@@ -24,12 +24,12 @@ JSON, 0 malformed — matching `scripts/ingest_reviewed_corrections.py`'s dry-ru
 | Total records | 85 |
 | `manual_review_queue` | 55 |
 | `vote_corrections` | 30 |
-| **`full_line`** | **20** |
+| **`full_line`** | **19** |
 | `partial` | 65 |
 | — of which `covers: hemistich` | 36 |
 | `triage: not_text` | 0 |
 
-**The 20 full_line records contribute 20 gold verses across 18 distinct pages**
+**The 19 full_line records contribute 19 gold verses across 18 distinct pages**
 (2, 3, 6, 8, 11, 20, 21, 28, 31, 34, 36, 44, 48, 49, 50, 53, 65, 72). The applied layer
 `reviewed_corrections.clean.md` holds verses 9001–9020 and the alignment file has 18
 entries. By provenance the 20 split as **9 `vote_corrections`** (token-level name
@@ -90,7 +90,7 @@ read-only and lived in `/tmp/opencode/gold_meas/`; **no repo file was modified**
 
 ## 3. Headline — full_line-only gold (the number the plan asks for)
 
-**Set:** all 20 `full_line` records — 11 verse + 9 prose, 18 pages, 861 reference
+**Set:** all 19 `full_line` records — 11 verse + 9 prose, 18 pages, 861 reference
 characters (176 words) after stripping tashkeel, **438 diacritic positions**.
 
 | metric | value |
@@ -122,7 +122,7 @@ verse lines:
 Shown only so the effect of blending is visible, per the task. **Do not quote this as a
 quality number** — see the circularity warning below.
 
-**Set:** all 85 records (20 full_line + 65 partial) — 33 verse + 52 prose, 53 pages,
+**Set:** all 92 records (19 full_line + 66 partial + 7 not_text) — 33 verse + 52 prose, 53 pages,
 3,204 reference characters, 1,672 diacritic positions.
 
 | metric | full_line only | combined (fl+partial) | partial only |
@@ -302,3 +302,36 @@ Effect: diacritic positions compared went 127 -> **438**, base-letter CER
 scoring nine vault-corrected rows against the *wrong line* of their pages,
 which inflated CER by a factor of two. The corrected numbers match this
 report's §3 exactly, which is the cross-validation that the fix is right.
+
+## Correction (2026-10-02) — gate is 19, not 20, after the pairing fix
+
+The counts above were corrected from 20 to 19 `full_line` records. The metric
+**tables in this document were measured against the 20-record set and have not
+been recomputed here**; only the record/page counts were updated. Re-run before
+quoting any figure from them.
+
+**Why the gate moved.** `render_review_crops.py` set `pairing.json`'s `verified`
+flag from *how* a band was chosen rather than from whether the band's text matched
+the stored guess, so the positional path asserted a confirmation it never tested.
+That left the `full_line` guard in `ingest_reviewed_corrections.py` inert for the
+7 crops the pairing audit proved show a different line
+(`logs/batch456_pairing_audit.md`). `verified` is now a textual claim, which
+demoted one human `full_line` record:
+
+- `p006_02` — crop OCR is the 2-char fragment `وي`, scoring 0.22 against its own
+  band, below any textual floor. A 2-character guess cannot confirm a pairing, so
+  it is now reported unverified and the record is held at `partial`. It needs a
+  human to confirm the crop shows the line before it returns to `full_line`
+  (set `pairing_confirmed: true`).
+
+`p002_08` was also flagged by the new floor at 0.444 vs the 0.45 threshold — a
+boundary false positive. `logs/crop_pairing_audit.md` had already re-checked that
+crop against its content lines and found it correctly paired, so its
+`pairing_confirmed` was set, recording that existing finding rather than asserting
+a new human confirmation.
+
+**Effect on the reviewed-layer measurement.** Re-measured after applying the
+corrected layer: 19 verses across 18 pages, 438 diacritic positions, macro CER
+**31.1% -> 30.7%**, DER unchanged at **9.4%**. Dropping `p006_02` slightly
+*improved* CER — the 2-char fragment was being scored as if it were a confirmed
+line, which is exactly the over-crediting the pairing fix removes.

@@ -92,13 +92,53 @@ def load_env_keys():
     return keys
 
 
+# Excluded by the pairing audit (logs/batch456_pairing_audit.md). Reading a
+# mis-paired crop yields a fluent reading of the WRONG line, and two keys
+# agreeing on the wrong line is still the wrong line, so these crops would burn
+# image quota on readings that cannot be registered. Re-include them only after
+# they are re-cropped at the correct band and the audit is re-run.
+#
+# Group A - strong mis-pair (another line wins by >=0.35).
+MISPAIRED = {
+    "p084_15.png": "crop is a prose gloss at cl19, not the verse at cl14",
+    "p094_07.png": "crop shows cl13, filed as cl5",
+    "p111_01.png": "own line cl3 scores 0.00; cl1 matches at 1.00",
+    "p111_14.png": "own line cl11 scores 0.00; cl10 wins",
+    "p092_01.png": "crop shows cl1, filed as cl2",
+    "p090_11.png": "crop shows cl11, filed as cl14",
+    "p111_17.png": "crop shows cl13, filed as cl14",
+}
+# Group B - suspect pairing (margin 0.12-0.35, pairing unproven).
+SUSPECT = {
+    "p111_09.png": "cl5 edges cl9 by 0.28; all scores low",
+    "p111_11.png": "cl18 edges cl12 by 0.20; crop OCR is a 2-char fragment",
+    "p111_10.png": "cl3 edges cl8 by 0.17; closest call in the group",
+}
+# Group C - pairing is clean but the crop is too weak to transcribe.
+UNREADABLE = {
+    "p111_13.png": "own cl13 scores 0.17",
+    "p108_03.png": "own cl3 scores 0.33",
+    "p107_09.png": "own cl12 scores 0.37",
+    "p090_14.png": "own cl14 scores 0.44",
+}
+EXCLUDED = {**MISPAIRED, **SUSPECT, **UNREADABLE}
+
+
 def parse_crop_list():
-    """48 unique crop paths from the decisions sheet."""
+    """Unique crop paths from the decisions sheet, minus audit-excluded crops."""
     text = open(DECISIONS, encoding="utf-8").read()
     crops = sorted(set(re.findall(r"data/review_crops/(p\d{3}_\d{2}\.png)", text)))
     if not crops:
         raise SystemExit("FATAL: no crops found in logs/batch456_decisions.md")
-    return ["data/review_crops/" + c for c in crops]
+    skipped = [c for c in crops if c in EXCLUDED]
+    if skipped:
+        log(f"[setup] skipping {len(skipped)} audit-excluded crops "
+            f"({len(MISPAIRED)} mis-paired, {len(SUSPECT)} suspect, "
+            f"{len(UNREADABLE)} unreadable)")
+    kept = ["data/review_crops/" + c for c in crops if c not in EXCLUDED]
+    if not kept:
+        raise SystemExit("FATAL: every crop was excluded by the audit")
+    return kept
 
 
 def parse_page_region():

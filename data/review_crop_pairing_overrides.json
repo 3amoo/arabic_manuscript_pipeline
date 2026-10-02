@@ -1,0 +1,24 @@
+{
+  "_comment": [
+    "Hard-evidence pairing findings that must survive a re-render.",
+    "data/review_crops/pairing.json is gitignored, so a finding recorded only",
+    "in that manifest is lost the next time render_review_crops.py runs. Each",
+    "entry here forces a crop to unverified no matter what the text score says.",
+    "Source of truth for the evidence and method: logs/batch456_pairing_audit.md.",
+    "Only add a crop here when its OCR was compared against EVERY line on its",
+    "own page and another line won by a clear margin. A low text score alone is",
+    "NOT sufficient and must not be used as grounds for an entry: scores below",
+    "0.45 overlap heavily with correctly paired crops, so the renderer already",
+    "handles those on its own floor."
+  ],
+  "overrides": {
+    "p111_14.png": {
+      "verdict": "mispaired",
+      "crop_shows_content_line": "cl10",
+      "similarity_to_that_line": 0.67,
+      "own_line_similarity": 0.0,
+      "evidence": "own cl11 scores 0.00 against the crop; cl10 matches at 0.67",
+      "note": "Escapes the 0.45 text floor with a 0.60 guess-vs-band score, so only the page-wide comparison catches it. Needs a human or a vision model to re-crop at the correct band."
+    }
+  }
+}

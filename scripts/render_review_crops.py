@@ -45,6 +45,16 @@ a manifest next to the crops (pairing.json), one entry per crop:
     "p020_09.png": {"verified": true,  "guess": "...", "page": 20}
     "p111_13.png": {"verified": false, "guess": "...", "page": 111}
 
+`verified` means the RENDERED BAND TEXTUALLY CONFIRMS THE STORED
+GUESS. It is not a statement that an index was used: pairing by
+position is not verification, and a positional band that was never
+compared to its guess is reported unverified. ingest_reviewed_corrections.py
+refuses to grade an unverified crop full_line, so an over-claimed
+`verified` silently disables the gate — see the measurement in
+logs/batch456_pairing_audit.md, where 7 crops that demonstrably show a
+different line all carried `verified: true` because the flag was
+derived from how the band was chosen rather than from the text.
+
 `verified: false` means the band was taken positionally as a best
 guess — no fresh OCR text in the window resembled the stored guess,
 so the crop may not be the line the guess came from. The ingest layer
@@ -166,6 +176,39 @@ def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
+# A band is only reported `verified` when its fresh text confirms the
+# stored guess. Measured over all 117 crops (logs/batch456_pairing_audit.md):
+# guess-vs-band scores cluster at 0.70-1.00 for correctly paired rows, with a
+# tail below 0.45. 0.45 splits that tail off without condemning the bulk, and
+# it is deliberately conservative — an unverified row costs a human a look at
+# the crop, while an over-claimed one lets a wrong band reach the gold layer.
+#
+# This is NOT sufficient to find a correct pairing: 6 of the 7 proven
+# mis-pairs score under 0.45, but so do 17 correctly paired crops, and
+# p111_14 reaches 0.60 while showing the wrong line. The floor therefore only
+# ever demotes a claim to unverified; it never promotes one, and re-cropping a
+# mis-paired row needs a human or a vision model, not a threshold.
+VERIFY_FLOOR = 0.45
+# A guess this short carries too few characters to confirm anything (the
+# renderer already declines to text-search a guess <= 4 chars), so it can
+# never be text-verified and is reported unverified rather than assumed.
+MIN_VERIFIABLE_GUESS = 5
+# Hard-evidence mis-pair findings, kept outside the (gitignored) manifest so a
+# re-render cannot silently restore a `verified` claim that has been disproved.
+OVERRIDES_PATH = Path("data/review_crop_pairing_overrides.json")
+
+
+def _load_overrides() -> Dict[str, Dict[str, Any]]:
+    """crops whose pairing was disproved by comparing the crop against every
+    line on its own page. The text floor cannot catch every mis-pair, so these
+    are forced unverified regardless of score — see
+    data/review_crop_pairing_overrides.json for the bar for adding one."""
+    if not OVERRIDES_PATH.exists():
+        return {}
+    data = json.loads(OVERRIDES_PATH.read_text(encoding="utf-8"))
+    return data.get("overrides", {})
+
+
 def _pair_rows(
     rows: List[Tuple[int, str]],
     crops: List[np.ndarray],
@@ -275,6 +318,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     rendered = 0
     ambiguous = 0
     manifest: Dict[str, Dict[str, Any]] = {}
+    overrides = _load_overrides()
+    if overrides:
+        print("pairing overrides: %d crop(s) forced unverified (%s)"
+              % (len(overrides), ", ".join(sorted(overrides))))
     pages = sorted(page_dir.glob("page_*.txt"))
     for pf in pages:
         page_no = int(pf.stem.split("_")[1])
@@ -326,31 +373,56 @@ def main(argv: Optional[List[str]] = None) -> int:
                 # Nothing in the window resembles the guess (OCR drift
                 # between the stored run and a fresh one hits short and
                 # dotted guesses hardest). Fall back to the positional
-                # crop and mark it UNVERIFIED-PAIRING so the reviewer
-                # knows the band is a best guess, not a confirmed match.
+                # crop so the reviewer still gets an image to look at. The
+                # textual check below will leave it unverified, which is
+                # the honest state — the band is a best guess, not a match.
                 j = min(idx, len(crops) - 1)
                 if j < 0:
                     print("p%-3d idx=%-2d NO BANDS AT ALL" % (page_no, idx))
                     continue
-                tag = " UNVERIFIED-PAIRING(band=%d)" % j
-            else:
-                tag = " paired(band=%d)" % j
             name = "p%03d_%02d.png" % (page_no, j)
             cv2.imwrite(str(out / name), crops[j][:, :, ::-1])
+            # `verified` is a TEXTUAL claim, not a record of how the band was
+            # picked. The positional path (counts_agree) never compares the band
+            # to the guess, so it cannot verify anything on its own.
+            band_score = _similarity(guess, texts[j]) if j < len(texts) else 0.0
+            confirmed = (
+                len(guess) >= MIN_VERIFIABLE_GUESS
+                and band_score >= VERIFY_FLOOR
+            )
+            if confirmed:
+                pair_tag = "paired(band=%d,text=%.2f)" % (j, band_score)
+            elif len(guess) < MIN_VERIFIABLE_GUESS:
+                pair_tag = "UNVERIFIED-SHORT-GUESS(band=%d,text=%.2f)" % (
+                    j, band_score)
+            else:
+                pair_tag = "UNVERIFIED-TEXT(band=%d,text=%.2f)" % (j, band_score)
+            # A disproved pairing outranks any score: the text floor exists to
+            # catch drift it can see, and this crop was disproved by a stronger
+            # test (compared against every line on its own page).
+            override = overrides.get(name)
+            if override:
+                confirmed = False
+                pair_tag = ("MISPAIRED(crop shows %s at %.2f; own line %.2f) "
+                            "- re-crop at the correct band"
+                            % (override["crop_shows_content_line"],
+                               override["similarity_to_that_line"],
+                               override["own_line_similarity"]))
             manifest[name] = {
                 "page": page_no,
                 "content_line_index": idx,
                 "guess": guess,
-                # A band taken positionally (no fresh OCR text in the
-                # window resembled the stored guess) is a best guess,
-                # not a confirmed match. ingest_reviewed_corrections.py
-                # refuses to grade these full_line without explicit
-                # confirmation — see HOW PAIRING IS GRADED above.
-                "verified": tag.strip().startswith("paired"),
-                "tag": tag.strip(),
+                # True only when the rendered band's own OCR text confirms the
+                # stored guess. ingest_reviewed_corrections.py refuses to grade
+                # an unverified crop full_line — see HOW PAIRING IS GRADED.
+                "verified": confirmed,
+                "text_similarity": round(band_score, 3),
+                "tag": pair_tag,
             }
+            if override:
+                manifest[name]["pairing_audit"] = override
             print("p%-3d idx=%-2d -> %-18s %-34s%s"
-                  % (page_no, idx, name, guess[:32], tag))
+                  % (page_no, idx, name, guess[:32], " " + pair_tag))
             rendered += 1
             if not counts_agree:
                 ambiguous += 1
