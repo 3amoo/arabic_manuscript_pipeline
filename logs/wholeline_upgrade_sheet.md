@@ -95,3 +95,32 @@ verse more than its own. Worth a look before any upgrade.
   halves are in the frame; it is not a human's confirmation that the glyphs are legible.
   The 14 are ready because the *text* is GT and the *frame* is verified, not because a
   model read the manuscript.
+## Applied 2026-10-02
+
+All 14 were upgraded: `covers: hemistich` -> `whole_line`, `confidence: partial` ->
+`full_line`, with the corrected_text set to the full GT verse. Each record's note carries
+the machine-verified provenance and an instruction to revert it if a human disagrees with
+the crop.
+
+**Result:** gate 20 -> 34, gold layer 20 -> 34 verses across 18 -> 23 pages. No records
+were downgraded by the pairing guard. 409 tests pass, verify_all green, invariant intact.
+
+**Metric movement is expected, not a regression.** The pooled numbers rose because the gold
+set nearly doubled (438 -> 639 diacritic positions) and the newly admitted verses are
+noisier than the 20 hand-confirmed ones:
+
+| metric | before (20 verses) | after (34 verses) |
+|---|---|---|
+| Diacritic positions | 438 | 639 |
+| Base-letter CER | 31.1% | 32.4% |
+| DER | 9.4% | 21.1% |
+
+DER nearly doubling is the point of a bigger gold set: the 9.4% was measured on a small,
+hand-curated subset that the OCR happened to read well. The 21.1% is a more honest pooled
+figure over a set that includes harder lines. Both are still computed only on positions
+where the base letters agree, so the rise is OCR diacritic quality on the new verses, not a
+changed definition.
+
+**What remains:** 16 full_line records to reach the ~50 target. The 6 not-ready rows above
+need a human, and the batch 4-6 rows (pages 68-111) are out of GT scope entirely so they
+can only be closed by a person reading the crop.

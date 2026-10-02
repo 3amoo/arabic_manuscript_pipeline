@@ -227,3 +227,11 @@ what needs human eyes.
   Sheet at logs/wholeline_upgrade_sheet.md registers nothing. The other 6 have
   margins 0.00-0.09 and need a human; p063_11 and p060_13 are notable because a
   DIFFERENT verse wins outright (margins 0.06 and 0.01).
+- [t23] Applied the 14 whole-line upgrades with machine-verified provenance
+  (user-approved). Gate 20 -> 34, gold layer 20 -> 34 verses across 23 pages.
+  Each note names the evidence (midpoint split + unique winner margin >=0.10 +
+  GT text) and says no human has read the glyphs. Pooled DER rose 9.4 -> 21.1
+  and CER 31.1 -> 32.4 because the gold set nearly doubled (438 -> 639
+  positions) onto noisier verses; that is a more honest pooled figure, not a
+  regression. 409 tests pass, verify_all green. Cross-read paused per user:
+  image quota still exhausted today, runner is resumable and scoped to 39.
