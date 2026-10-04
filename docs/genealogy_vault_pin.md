@@ -20,9 +20,10 @@ points at nothing. This file closes that risk.
 | field | value |
 |---|---|
 | path | `/home/omar/Desktop/Obsidian/علم شرعي/علم الأنساب` (the `DEFAULT_VAULT` constant in `scripts/genealogy_crossref.py`) |
-| files | 11 markdown, 168 KB, no subdirectories |
-| snapshot hash | `7e92a8e6747f6bf6eb78b5aebd522834f087b239b3b4b134f7a3e131ee665bb3` |
+| files | 11 markdown, 172 KB, no subdirectories |
+| snapshot hash | `a3ee796507873d4546af0e6d7bec0505bdbb982d36a122053c870dec01660a72` |
 | pinned | 2026-09-22 |
+| re-verified | 2026-10-02 — vault drifted from the pinned hash (`7e92a8e6...`), same 11 files, 168 -> 172 KB. See "Drift audit (2026-10-02)" below |
 
 The snapshot hash is `sha256sum *.md | sort | sha256sum` — the same
 composition `verify_all.py` uses for the evidence invariant, so the
@@ -72,3 +73,51 @@ dbf784b3fb5076e62798a393b69d6f4586a48f9ad40fafb14127c6150268a4bd  02 الأبي�
 e7a6cf002f90c4b887bd4563d7e0920654f17cf20c9c3c46ab42867703d14f00  02  نسخة المذاكرة (2).md
 eee485c30898ebb5b14c0b4e4ed29e3ad87acdc482d77884f984cae449ab416e  00 الشاتات كلها.md
 ```
+
+## Drift audit (2026-10-02)
+
+The vault **has** moved since the original pin: the hash changed from
+`7e92a8e6...` to `a3ee7965...`, with the same 11 files growing 168 -> 172 KB
+(content edits, no additions or deletions). This is the scenario the pin was
+written for, so the impact was audited rather than assumed.
+
+**What was checked:** the 8 skeletons corrected by Phase 1
+(`logs/vault_vote_corrections.jsonl`), re-counted against the current vault
+index (`genealogy_crossref.py --report` re-runs cleanly: 267 skeletons).
+
+| corrected to | attestations at apply time | now | verdict |
+|---|---|---|---|
+| عمرو | 11 | 11 | unchanged |
+| كعب | 21 | 21 | unchanged |
+| سعد | 12 | 12 | unchanged |
+| عامر | 18 | 18 | unchanged |
+| وهب | 5 | 5 | unchanged |
+| هشام | 1 | 1 | unchanged, single-attested |
+| عثمان | 1 | 1 | unchanged, single-attested |
+| نوفل | 1 | 1 | unchanged, single-attested |
+
+All 8 corrected forms still exist as vault skeletons — the drift did not remove
+any name the corrections depend on. Five are unchanged in count; three
+(`هشام`, `عثمان`, `نوفل`) remain at **1 attestation**.
+
+**Why those three still stand.** They were human-accepted in
+`logs/vault_review_56.jsonl` with reasons that do not depend on the vault count:
+`مشام -> هشام` ("not an Arabic word; target هشام بن عبد الملك"), `عمان ->
+عثمان` ("target is the city Amman vs the caliph عثمان; dotting slip"), and
+`نوقل -> نوفل` ("ق/ف dotting slip; target نوفل بن الحارث"). Each identifies
+the historical figure and the specific OCR defect. A `review_accepts()` human
+override is what let them past the `MIN_VAULT_EVIDENCE = 2` guard in the first
+place (`vault_vote_correct_names.py:341`), so the low count was known and
+deliberate, not an oversight.
+
+**None of the three has any ground-truth support** — `هشام`, `عثمان`, and
+`نوفل` appear in zero of the 620 GT verses (the GT's single `عمان` is
+`النعمان` in v250, a different word). They rest on the human's reading plus one
+vault attestation. That is weaker evidence than the other five, and it should be
+said plainly rather than left implicit in a count.
+
+**No action taken.** The corrections were human-accepted on substantive grounds,
+the corrected forms are still attested, and reverting them would restore forms
+the human judged to be OCR defects. But the three single-attested corrections
+are the ones to revisit first if the vault ever contradicts them, and this
+section is the record of that.
