@@ -249,3 +249,10 @@ what needs human eyes.
   4-minute wait restores roughly one call, so the run is resumable but slow.
   The runner exits cleanly and resumes from logs/gemini_crossread.jsonl,
   recording only status=ok crops as done.
+- [t26] Registered the 13 completed cross-reads as partial records per
+  logs/gemini_registration_spec.md: confidence partial, source
+  gemini_crossread, corrected_text = the more fully vocalized key, and
+  pairing_confirmed set by a skeleton test against the page's own content
+  lines. 105 records, 0 rejected, gate unchanged at 34 - partials are held
+  back from the gold layer by design, so this adds auditable evidence
+  without touching the gate. 409 tests pass, verify_all green.
