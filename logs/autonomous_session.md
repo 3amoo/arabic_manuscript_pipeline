@@ -256,3 +256,12 @@ what needs human eyes.
   lines. 105 records, 0 rejected, gate unchanged at 34 - partials are held
   back from the gold layer by design, so this adds auditable evidence
   without touching the gate. 409 tests pass, verify_all green.
+- [t27] Second upgrade pass with a STRICTER test. The first pass took the best
+  of two hemisphere arrangements, which let crops with one illegible side
+  through (p057_11's left reads garbage, p064_13's right is not its half0).
+  Fixed by requiring EACH side of the midpoint split to match its own
+  hemisphere, not the better arrangement. That cut the pass count from 11 to 4.
+  Registered those 4: gate 34 -> 38, gold layer 38 verses across 25 pages.
+  Re-measured 729 positions, CER 31.9, DER 23.6. 409 tests pass, verify_all
+  green. The remaining hemistich rows fail the both-sides test on one side and
+  need a human.
