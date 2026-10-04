@@ -53,15 +53,30 @@ DIACRITICS = re.compile(r"[ً-ٰٟۖ-ۭـ]")
 ARABIC_LETTER = re.compile(r"[^ء-ي]")
 
 MAX_ATTEMPTS = 6
-# Free tier is 5 requests/min/key: stay under it (spacing measured from the
-# start of the previous call on the same key).
-MIN_CALL_INTERVAL = 14.0
+# The free tier refills per minute, and the observed refill window is ~60s, so
+# the control has to be able to out-wait a whole cycle. The crop backoff below
+# tops out at 90s; the control retries on a longer ladder because it gates
+# everything else — giving up here means recording nothing at all.
+CONTROL_BACKOFFS = [20.0, 40.0, 70.0, 90.0, 120.0]
+# Measured on the free tier: 2 image requests per ~60s per key, not the 5/min
+# the text quota allows. The runner originally paced at 14s for 5/min and
+# exhausted the image bucket inside 30s, which made the control fail and abort
+# the whole run. 32s spacing keeps 2 calls per minute per key, and spacing is
+# measured from the START of the previous call so a slow response does not
+# stack two calls into the same window.
+# The image bucket refills on a rolling window. Observed: after a burst that
+# drains it completely, a 4-minute wait restores a call. Used by the control's
+# second chance so a temporarily empty bucket does not kill the whole run.
+REFILL_WINDOW = 240.0
+MIN_CALL_INTERVAL = 32.0
 # Backoff between attempts on a 429. The API's "retry in" field is NOT
 # trustworthy here: it reports the *day* bucket's reset even when only the
 # per-minute bucket is exhausted (verified: a key that reported "retry in
 # 8h41m" answered a fresh call 60s later). So we retry on a fixed schedule
-# and only declare the key dead once every attempt fails.
-BACKOFFS = [15.0, 30.0, 45.0, 60.0, 90.0]
+# and only declare the key dead once every attempt fails. The ladder has to
+# clear a whole refill window: the image bucket is 2/min and a call consumes
+# one, so anything under ~60s just re-hits the same exhausted window.
+BACKOFFS = [60.0, 75.0, 90.0, 120.0, 150.0]
 
 
 def log(msg):
@@ -223,7 +238,8 @@ class Reader:
         if gap < MIN_CALL_INTERVAL:
             time.sleep(MIN_CALL_INTERVAL - gap)
 
-    def _generate(self, payload, label):
+    def _generate(self, payload, label, backoffs=None):
+        backoffs = backoffs if backoffs is not None else BACKOFFS
         last = None
         for attempt in range(1, MAX_ATTEMPTS + 1):
             self._pace()
@@ -249,13 +265,17 @@ class Reader:
                 log(f"  {self.name} {label} attempt {attempt} FAILED in "
                     f"{time.time() - t0:.1f}s: {type(exc).__name__}: {msg.splitlines()[0][:160]}")
                 if attempt < MAX_ATTEMPTS:
-                    delay = BACKOFFS[attempt - 1]
+                    delay = backoffs[min(attempt - 1, len(backoffs) - 1)]
                     log(f"  {self.name} {label}: sleeping {delay:.0f}s then retrying")
                     time.sleep(delay)
         return last
 
     def control(self):
-        res = self._generate(blank_control_payload(), "control")
+        # The control is the gate for the whole run, so it retries on a longer
+        # ladder than a single crop: it needs to out-wait a full quota refill
+        # cycle (~60s on the free tier), not just a transient blip.
+        res = self._generate(blank_control_payload(), "control",
+                             backoffs=CONTROL_BACKOFFS)
         if isinstance(res, Exception):
             self.dead = (f"quota_exhausted or error on blank-white control: "
                          f"{type(res).__name__}: {str(res).splitlines()[0][:200]} "
@@ -326,9 +346,20 @@ def main():
     for name, key in (("key1", keys["key1"]), ("key2", keys["key2"])):
         readers[name] = Reader(name, key)
 
-    # Blank-white control once per key, before the main loop.
+    # Blank-white control once per key, before the main loop. A key that
+    # fails here is not necessarily dead: both keys share one quota bucket,
+    # so a 429 on the control often means the bucket is momentarily empty
+    # rather than the key being unusable. Wait out a refill window and try
+    # once more before declaring it dead, so a temporarily drained bucket
+    # does not abort the entire run.
     for name, reader in readers.items():
         reader.control()
+        if reader.dead:
+            log(f"[control] {name} failed; waiting out a refill window "
+                "before the final check")
+            time.sleep(REFILL_WINDOW)
+            reader.dead = False
+            reader.control()
 
     alive = [n for n, r in readers.items() if not r.dead]
     if not alive:

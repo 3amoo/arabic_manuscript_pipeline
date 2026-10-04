@@ -235,3 +235,17 @@ what needs human eyes.
   positions) onto noisier verses; that is a more honest pooled figure, not a
   regression. 409 tests pass, verify_all green. Cross-read paused per user:
   image quota still exhausted today, runner is resumable and scoped to 39.
+- [t24] Gemini image quota partially reset, cross-read resumed. Learned the
+  hard limit is 2 IMAGE requests/min/key (not 5/min, which is the text quota):
+  measured by firing 4 calls 12s apart and watching the 3rd and 4th 429.
+  Fixed three runner defects the limit exposed: MIN_CALL_INTERVAL 14->32s
+  (the old pacing drained the bucket inside 30s and made the control abort),
+  crop BACKOFFS raised to 60-150s (the 15-90s ladder re-hit the same
+  exhausted window), and the control now gets a second chance after waiting
+  out a refill window instead of declaring a shared-bucket 429 a dead key.
+- [t25] Cross-read progress: 13 of 39 sound crops read with both keys,
+  skeleton agreement 0.88-1.00 on every one. The remaining 26 are blocked
+  on the daily image bucket, which the burst of retry rounds drained; a
+  4-minute wait restores roughly one call, so the run is resumable but slow.
+  The runner exits cleanly and resumes from logs/gemini_crossread.jsonl,
+  recording only status=ok crops as done.
