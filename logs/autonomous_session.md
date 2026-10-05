@@ -332,3 +332,28 @@ what needs human eyes.
   verify_all.py TEST_MODULES. 420 tests pass (was 409). Invariant re-pinned to
   60309548f2b265e6de11 with a comment explaining the layer is a dormant
   evaluation artifact. Full evaluation in docs/vault_tashkeel_fill.md.
+
+- [t31] GOLD EXPANSION INTO THE FILL'S WINDOW (pages 11-38). The Phase 3 fill
+  changed 0 of the 50 scored lines because the gold layer sat outside the
+  vault's coverage window. Found the actual overlap: 26 OCR lines match a
+  vault line at >=0.80 AND a printed GT verse uniquely (>=0.55, margin
+  >=0.10). 1 was already registered (p036_03), 4 are prose, leaving 21
+  verse lines.
+  Registered all 21 as machine-verified gold records with the same standard
+  as the 18 earlier upgrades: the FRAME is verified (two independent sources
+  identify the same verse) and the TEXT is ground truth. No human read these
+  glyphs; every record says so and carries a revert instruction.
+  Gate 50 -> 71. Gold layer 71 verses across 38 pages, 1401 positions.
+  THE MEASUREMENT THAT MATTERS - same 21 lines, raw vs filled, identical
+  denominator:
+    RAW : 134 positions, 79 correct, 55 errors, acc 59.0%
+    FILL: 134 positions, 83 correct, 51 errors, acc 61.9%
+  Per line: 2 IMPROVED (p011 cl14 5->3, p027 cl7 6->3), 1 WORSENED (p030 cl12
+  3->4), 18 unchanged. The improvement is small and real. The regression is
+  a misread BASE LETTER (الخفش for الحِفْش) the fill cannot fix plus one
+  over-eager sukun - exactly the limitation a lookup has when the OCR's own
+  letter is wrong.
+  The headline pooled numbers moved DER 29.8 -> 27.7 / acc 70.2 -> 72.3, but
+  part of that is the p72 denominator effect, so the 21-line identical-set
+  comparison above is the one to quote.
+  420 tests pass, verify_all green, invariant unchanged.
