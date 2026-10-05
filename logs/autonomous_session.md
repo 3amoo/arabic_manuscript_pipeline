@@ -265,3 +265,21 @@ what needs human eyes.
   Re-measured 729 positions, CER 31.9, DER 23.6. 409 tests pass, verify_all
   green. The remaining hemistich rows fail the both-sides test on one side and
   need a human.
+
+- [t28] HUMAN CROP REVIEW (the bottleneck task). Presented the operator all 12
+  remaining candidate crops with their registered GT and asked for a reading
+  of each. All 12 were read; 6 covered whole lines, 6 covered one hemistich.
+  Tier 2 (6 whole_line): upgraded to confidence=full_line - p001_00,
+  p016_19, p021_05, p033_09, p029_00, p066_08. Gate 38 -> 44. Tier 1 (6
+  hemistich): kept confidence=partial / covers=hemistich because the
+  validator rejects hemistich+full_line by design and only one half was read;
+  their corrected_text was updated to the operator's reading, which diverges
+  from the printed edition in 4 of 6 (p063_11 فَعَلَّه->فَغَلَّه, p038_05
+  الجَلْدْمَاءَ->الجَذْمَاءَ, p060_05, p062_07).
+  Every changed record carries provenance (operator read <crop> on 2026-10-05)
+  and a revert instruction. 7 of the 12 readings diverge from the printed
+  edition GT in some way, which is real signal: the gold layer now records
+  what the manuscript says, not what the edition normalises.
+  Re-measured the gold layer: 44 verses across 30 pages, 775 positions,
+  base-letter CER 33.8, DER 24.6, diacritic accuracy 75.3. 409 tests pass,
+  verify_all green, invariant unchanged.

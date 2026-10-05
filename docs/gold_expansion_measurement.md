@@ -335,3 +335,46 @@ corrected layer: 19 verses across 18 pages, 438 diacritic positions, macro CER
 **31.1% -> 30.7%**, DER unchanged at **9.4%**. Dropping `p006_02` slightly
 *improved* CER — the 2-char fragment was being scored as if it were a confirmed
 line, which is exactly the over-crediting the pairing fix removes.
+
+---
+
+## Addendum — 2026-10-05 re-measurement (44 full_line records)
+
+The §1–§5 tables above were measured on the 19–20 record set as of 2026-10-02
+and are **stale**: they under-count the current gold layer and are not re-run
+here. This section is the current measurement; quote it instead of §3.
+
+The gold layer grew by machine-verified whole-line upgrades (20 -> 38) and a
+human crop review (38 -> 44), the latter recorded in
+`data/reviewed_corrections.jsonl` with per-record provenance and a revert
+instruction.
+
+Command (the fixed two-command form from §6):
+
+```
+./myenv/bin/python scripts/ingest_reviewed_corrections.py --apply
+./myenv/bin/python scripts/measure_der.py \
+  --alignment data/ground_truth/عمود النسب\ نسخة\ 2/reviewed_corrections.alignment.json \
+  --gt      data/ground_truth/عمود النسب\ نسخة\ 2/reviewed_corrections.clean.md
+```
+
+| metric | 2026-10-02 (19–20 records) | 2026-10-05 (44 records) |
+|---|---|---|
+| full_line records | 19–20 | **44** |
+| gold pages | 18–25 | **30** |
+| diacritic positions | 438–729 | **775** |
+| base-letter CER | 21.3% | **33.8%** |
+| DER | 9.4% | **24.6%** |
+| diacritic accuracy | 90.6% | **75.3%** |
+
+**The deterioration is expected and is the point.** The 9.4% DER was a 438-
+position, hand-curated subset the OCR happened to read well. The 44-record set
+admits harder lines chosen because the OCR read them *poorly* — that is the
+selection criterion for review. Both numbers are computed only where base
+letters agree, so the rise is genuine OCR diacritic quality on harder lines,
+not a changed definition. The corpus is now 9.6% of the historical baseline's
+8,072 positions, still far too small for a stable corpus estimate; §5's
+caveats apply unchanged.
+
+Leading confusion patterns (775 positions): fatha dropped 26 (13.6%), inserted
+fatha 24 (12.6%), inserted kasra 14 (7.3%), sukun dropped 14 (7.3%).
