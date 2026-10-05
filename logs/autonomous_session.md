@@ -283,3 +283,20 @@ what needs human eyes.
   Re-measured the gold layer: 44 verses across 30 pages, 775 positions,
   base-letter CER 33.8, DER 24.6, diacritic accuracy 75.3. 409 tests pass,
   verify_all green, invariant unchanged.
+
+- [t29] SECOND HUMAN CROP REVIEW - the operator read the remaining hemistich of
+  each of the 6 Tier-1 crops (p060_05, p063_11, p067_03, p062_07, p060_13,
+  p038_05). Both halves of every crop are now read, so all 6 upgrade to
+  confidence=full_line / covers=whole_line. GATE REACHED: 50 full_line of ~50
+  needed - Phase 2 is complete, Phase 3 (tashkeel) is unblocked.
+  The full verse text uses the operator's readings verbatim, joined with
+  " ... " in the crop's visual order, NOT the printed edition's order where
+  the two differ (p062_07's edition puts the Quranic quote second; the
+  manuscript puts it first). Every record carries provenance and a revert
+  instruction. Manuscript-vs-edition divergences recorded: p060_05
+  حُوَاريُّ/حَيْدَرَة -> حَوَاريُّ/حَيْدَرَه, p063_11 فَعَلَّه -> فَغَلَّه,
+  p067_03 أُمّ -> أُمٍّ, p060_13 اللهُ -> اللّه, p038_05 الجَلْدْمَاءَ ->
+  الجَذْمَاءَ and الانْخَاءِ -> الانْحاءِ.
+  Re-measured the gold layer: 50 verses across 34 pages, 883 diacritic
+  positions, base-letter CER 34.3, DER 26.2, diacritic accuracy 73.8.
+  409 tests pass, verify_all green, invariant unchanged.
