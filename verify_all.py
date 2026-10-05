@@ -123,7 +123,17 @@ PY = str(REPO / "myenv" / "bin" / "python")
 # because the benchmark regen now scores vault_corrected_text/; the raw
 # baseline (23.7/59.8/83.1) stays reproducible with `evaluate_cer
 # --layer raw_text`. See check_benchmark() and docs/accuracy_history.md.
-INVARIANT = "853419275001e5bbd407"
+# Updated 2026-10-05 (Phase 3 evaluation, DORMANT - not production): a vault
+# diacritization-lookup layer was written to data/output/<doc>/
+# vault_tashkeel_text/ (67 pages, pages 1-67 only) to evaluate the plan's
+# Phase 3 second option. It fills bare OCR tokens from the genealogy vault's
+# own diacritized lines and changes no base letters. The hash moves because
+# 67 new page files exist under data/output. raw_text/ is untouched and the
+# benchmark is unchanged (23.7/59.7/83.0). The tool is deliberately NOT wired
+# into the pipeline: it changed 0 of the 50 gold-layer-scored lines, so it
+# moves nothing the project measures today. See docs/vault_tashkeel_fill.md
+# before treating this layer as anything but an evaluation artifact.
+INVARIANT = "60309548f2b265e6de11"
 TEST_MODULES = [
     "tests.test_gt_alignment",
     "tests.test_diacritic_metrics",
@@ -153,6 +163,10 @@ TEST_MODULES = [
     # textual claim; it was index arithmetic and silently disabled the guard
     # for 7 mis-paired crops (logs/batch456_pairing_audit.md).
     "tests.test_review_crop_pairing",
+    # Phase 3: the vault lookup's conservation rule (never overwrite an
+    # existing mark) and its phrase-level disambiguation are what make it
+    # safe where the MSA model was not (docs/vault_tashkeel_fill.md).
+    "tests.test_vault_tashkeel_fill",
 ]
 SMOKE_ARGS = ["--start", "24", "--end", "26"]
 DOC = "عمود النسب نسخة 2"

@@ -300,3 +300,35 @@ what needs human eyes.
   Re-measured the gold layer: 50 verses across 34 pages, 883 diacritic
   positions, base-letter CER 34.3, DER 26.2, diacritic accuracy 73.8.
   409 tests pass, verify_all green, invariant unchanged.
+
+- [t30] PHASE 3 EVALUATION (option 2: vault lookup, not generation). Phase 2's
+  gate is met at 50 full_line, so the tashkeel revisit is unblocked. Built
+  scripts/vault_tashkeel_fill.py, a lookup that fills bare OCR tokens from the
+  genealogy vault's 558 diacritized lines of this poem.
+  Three measurements, each answering a different question:
+  1. Is the vault trustworthy as a diacritized source? Vault vs printed GT:
+     100.0% identical on 1,537 shared tokens across 189 strongly-matched
+     verses, 0 disagreements. This is what the MSA model lacked.
+  2. Phrase-level vs token-frequency lookup. Frequency-ranking got 69.4%
+     against the printed GT; 25 of its 33 failures were DISAMBIGUATION
+     failures (the correct form present but rarer - ان -> أَنْ where the line
+     needs إنْ). Taking the token from the best-matching vault LINE got 100%.
+     So the tool ranks lines, not tokens.
+  3. Step-8 gate (>=80% agreement with the vault on filled marks): 55/55 =
+     100.0% PASS. Near-tautological - the fill comes FROM the vault - so it
+     proves the plumbing, not the power. The honest constraint is coverage:
+     18.5% of bare tokens in GT scope, 43 of 1,744 lines changed.
+  THE DECISIVE FINDING: the fill changed 0 of the 50 gold-layer-scored lines.
+  The vault's coverage window (pages 11-38) barely overlaps the reviewed gold
+  (concentrated on 23-67, with one record at p72). The apparent DER worsening
+  26.2 -> 26.9 is a DENOMINATOR ARTIFACT: the fill is capped at page 67 so the
+  p72 gold record drops, taking 883 positions to 852. No filled line is scored
+  either way, so that table measures the denominator, not the fill.
+  DECISION: gate PASSED, tool committed DORMANT (same status as
+  restore_tashkeel.py), NOT wired into production. Two things would change
+  that: grow the gold layer into pages 11-38, or extend the vault's
+  transcription beyond its ~300 verses.
+  Added tests/test_vault_tashkeel_fill.py (11 tests) and wired it into
+  verify_all.py TEST_MODULES. 420 tests pass (was 409). Invariant re-pinned to
+  60309548f2b265e6de11 with a comment explaining the layer is a dormant
+  evaluation artifact. Full evaluation in docs/vault_tashkeel_fill.md.

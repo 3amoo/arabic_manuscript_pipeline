@@ -1,0 +1,14 @@
+{
+  "document": "عمود النسب نسخة 2",
+  "vault_lines": 558,
+  "lines_scanned": 1744,
+  "buckets": {
+    "no_vault_line": 1273,
+    "filled_gap": 55,
+    "vault_has_no_form": 387,
+    "line_match": 149.52099999999993,
+    "lines_changed": 43,
+    "kept_ocr_diacritics": 1047
+  },
+  "applied": true
+}
