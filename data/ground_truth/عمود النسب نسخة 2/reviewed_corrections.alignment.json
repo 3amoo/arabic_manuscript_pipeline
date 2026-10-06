@@ -346,15 +346,17 @@
   {
    "page": 37,
    "gt_start": 40,
-   "gt_end": 40,
+   "gt_end": 42,
    "lines": [
+    0,
+    4,
     10
    ],
    "status": "matched",
    "confidence": 1.0,
    "recovered": true,
-   "out_verses_count": 1,
-   "gt_verses_count": 1,
+   "out_verses_count": 3,
+   "gt_verses_count": 3,
    "skipped_gt": 0,
    "hallucination_verses": [],
    "anchor_distance": 0,
@@ -362,8 +364,8 @@
   },
   {
    "page": 38,
-   "gt_start": 41,
-   "gt_end": 43,
+   "gt_start": 43,
+   "gt_end": 45,
    "lines": [
     1,
     3,
@@ -381,8 +383,8 @@
   },
   {
    "page": 40,
-   "gt_start": 44,
-   "gt_end": 46,
+   "gt_start": 46,
+   "gt_end": 48,
    "lines": [
     1,
     3,
@@ -400,16 +402,17 @@
   },
   {
    "page": 42,
-   "gt_start": 47,
-   "gt_end": 47,
+   "gt_start": 49,
+   "gt_end": 50,
    "lines": [
+    2,
     8
    ],
    "status": "matched",
    "confidence": 1.0,
    "recovered": true,
-   "out_verses_count": 1,
-   "gt_verses_count": 1,
+   "out_verses_count": 2,
+   "gt_verses_count": 2,
    "skipped_gt": 0,
    "hallucination_verses": [],
    "anchor_distance": 0,
@@ -417,8 +420,8 @@
   },
   {
    "page": 44,
-   "gt_start": 48,
-   "gt_end": 51,
+   "gt_start": 51,
+   "gt_end": 54,
    "lines": [
     5,
     7,
@@ -437,8 +440,8 @@
   },
   {
    "page": 45,
-   "gt_start": 52,
-   "gt_end": 52,
+   "gt_start": 55,
+   "gt_end": 55,
    "lines": [
     9
    ],
@@ -454,8 +457,8 @@
   },
   {
    "page": 48,
-   "gt_start": 53,
-   "gt_end": 54,
+   "gt_start": 56,
+   "gt_end": 57,
    "lines": [
     7,
     8
@@ -472,8 +475,8 @@
   },
   {
    "page": 49,
-   "gt_start": 55,
-   "gt_end": 59,
+   "gt_start": 58,
+   "gt_end": 62,
    "lines": [
     0,
     1,
@@ -493,8 +496,8 @@
   },
   {
    "page": 50,
-   "gt_start": 60,
-   "gt_end": 60,
+   "gt_start": 63,
+   "gt_end": 63,
    "lines": [
     2
    ],
@@ -510,8 +513,8 @@
   },
   {
    "page": 53,
-   "gt_start": 61,
-   "gt_end": 61,
+   "gt_start": 64,
+   "gt_end": 64,
    "lines": [
     2
    ],
@@ -527,8 +530,8 @@
   },
   {
    "page": 54,
-   "gt_start": 62,
-   "gt_end": 62,
+   "gt_start": 65,
+   "gt_end": 65,
    "lines": [
     3
    ],
@@ -543,46 +546,11 @@
    "source": "reviewed_corrections"
   },
   {
-   "page": 60,
-   "gt_start": 63,
-   "gt_end": 64,
-   "lines": [
-    5,
-    13
-   ],
-   "status": "matched",
-   "confidence": 1.0,
-   "recovered": true,
-   "out_verses_count": 2,
-   "gt_verses_count": 2,
-   "skipped_gt": 0,
-   "hallucination_verses": [],
-   "anchor_distance": 0,
-   "source": "reviewed_corrections"
-  },
-  {
-   "page": 62,
-   "gt_start": 65,
-   "gt_end": 65,
-   "lines": [
-    7
-   ],
-   "status": "matched",
-   "confidence": 1.0,
-   "recovered": true,
-   "out_verses_count": 1,
-   "gt_verses_count": 1,
-   "skipped_gt": 0,
-   "hallucination_verses": [],
-   "anchor_distance": 0,
-   "source": "reviewed_corrections"
-  },
-  {
-   "page": 63,
+   "page": 55,
    "gt_start": 66,
    "gt_end": 66,
    "lines": [
-    11
+    2
    ],
    "status": "matched",
    "confidence": 1.0,
@@ -595,7 +563,7 @@
    "source": "reviewed_corrections"
   },
   {
-   "page": 64,
+   "page": 57,
    "gt_start": 67,
    "gt_end": 67,
    "lines": [
@@ -612,9 +580,78 @@
    "source": "reviewed_corrections"
   },
   {
-   "page": 65,
+   "page": 60,
    "gt_start": 68,
-   "gt_end": 68,
+   "gt_end": 69,
+   "lines": [
+    5,
+    13
+   ],
+   "status": "matched",
+   "confidence": 1.0,
+   "recovered": true,
+   "out_verses_count": 2,
+   "gt_verses_count": 2,
+   "skipped_gt": 0,
+   "hallucination_verses": [],
+   "anchor_distance": 0,
+   "source": "reviewed_corrections"
+  },
+  {
+   "page": 62,
+   "gt_start": 70,
+   "gt_end": 70,
+   "lines": [
+    7
+   ],
+   "status": "matched",
+   "confidence": 1.0,
+   "recovered": true,
+   "out_verses_count": 1,
+   "gt_verses_count": 1,
+   "skipped_gt": 0,
+   "hallucination_verses": [],
+   "anchor_distance": 0,
+   "source": "reviewed_corrections"
+  },
+  {
+   "page": 63,
+   "gt_start": 71,
+   "gt_end": 71,
+   "lines": [
+    11
+   ],
+   "status": "matched",
+   "confidence": 1.0,
+   "recovered": true,
+   "out_verses_count": 1,
+   "gt_verses_count": 1,
+   "skipped_gt": 0,
+   "hallucination_verses": [],
+   "anchor_distance": 0,
+   "source": "reviewed_corrections"
+  },
+  {
+   "page": 64,
+   "gt_start": 72,
+   "gt_end": 72,
+   "lines": [
+    11
+   ],
+   "status": "matched",
+   "confidence": 1.0,
+   "recovered": true,
+   "out_verses_count": 1,
+   "gt_verses_count": 1,
+   "skipped_gt": 0,
+   "hallucination_verses": [],
+   "anchor_distance": 0,
+   "source": "reviewed_corrections"
+  },
+  {
+   "page": 65,
+   "gt_start": 73,
+   "gt_end": 73,
    "lines": [
     0
    ],
@@ -630,8 +667,8 @@
   },
   {
    "page": 66,
-   "gt_start": 69,
-   "gt_end": 69,
+   "gt_start": 74,
+   "gt_end": 74,
    "lines": [
     8
    ],
@@ -647,16 +684,17 @@
   },
   {
    "page": 67,
-   "gt_start": 70,
-   "gt_end": 70,
+   "gt_start": 75,
+   "gt_end": 76,
    "lines": [
+    2,
     3
    ],
    "status": "matched",
    "confidence": 1.0,
    "recovered": true,
-   "out_verses_count": 1,
-   "gt_verses_count": 1,
+   "out_verses_count": 2,
+   "gt_verses_count": 2,
    "skipped_gt": 0,
    "hallucination_verses": [],
    "anchor_distance": 0,
@@ -664,8 +702,8 @@
   },
   {
    "page": 72,
-   "gt_start": 71,
-   "gt_end": 71,
+   "gt_start": 77,
+   "gt_end": 77,
    "lines": [
     12
    ],

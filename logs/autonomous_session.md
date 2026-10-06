@@ -357,3 +357,26 @@ what needs human eyes.
   part of that is the p72 denominator effect, so the 21-line identical-set
   comparison above is the one to quote.
   420 tests pass, verify_all green, invariant unchanged.
+
+- [t32] HEMISTICH CLEANUP with the strict both-hemispheres test. 12 in-GT
+  hemistich partials remained, each with one human-confirmed half (all
+  matching their GT hemisphere at 1.00). The crop shows both halves, so its
+  own OCR can verify the unread one. Applied the established standard -
+  confirmed half's OCR >=0.35 against its hemisphere, the OTHER half's OCR
+  >=0.35 against its hemisphere, and the registered verse the unique winner
+  across all 620 by >=0.10:
+    PASS (6): p037_00 (other 0.87, margin +0.40), p037_04 (0.65, +0.26),
+    p042_02 (0.75, +0.29), p055_02 (0.87, +0.26), p057_11 (0.75, +0.33),
+    p067_02 (0.74, +0.35). All upgraded to full_line/whole_line.
+    NEEDS HUMAN (6): p039_09, p043_07, p059_10, p063_13, p064_13 fail the
+    hemisphere test on the unread side; p067_13 passes the hemisphere test
+    but FAILS the unique-winner rule at +0.01 - its crop OCR is nearly
+    unreadable and the top match (v241) is coincidental, not the registered
+    v619. Recorded why each is held.
+  The vault could not serve as a third signal here: it covers only ~300
+  verses and these rows sit on pages 37-67, outside its window (all vault
+  sims <0.75).
+  Gate 71 -> 77. Gold layer 77 verses across 40 pages, 1508 positions,
+  base CER 30.0, DER 31.0, acc 69.0. 420 tests pass, verify_all green.
+  The remaining 42 partials are all out of GT scope or fail the frame test;
+  the machine upgrade pool is now exhausted.
