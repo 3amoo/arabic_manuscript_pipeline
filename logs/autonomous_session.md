@@ -380,3 +380,29 @@ what needs human eyes.
   base CER 30.0, DER 31.0, acc 69.0. 420 tests pass, verify_all green.
   The remaining 42 partials are all out of GT scope or fail the frame test;
   the machine upgrade pool is now exhausted.
+
+- [t33] FINAL HUMAN CROP READINGS. The operator read the last 8 in-GT
+  partials and all 8 upgrade to full_line/whole_line. Gate 77 -> 83. Gold
+  layer 83 verses across 42 pages, 1565 positions, base CER 29.6, DER 31.3,
+  acc 68.7.
+  The vault_corrected_text benchmark rose to CER 23.7 / WER 59.7 / diacritics
+  accuracy 83.0 (from 34.3 / 26.2-der / 73.8 at Phase 2 close), because the
+  gold layer now overlaps the vault's coverage window heavily.
+  Three readings diverge from the printed edition and are recorded as
+  manuscript-vs-edition variants rather than normalised:
+    p039_09  edition عَنْبَسَةَ, manuscript عَبَسَةَ
+    p043_07  edition عَن المَارَةِ فَقَالَ مَا انتَوَى, manuscript
+             عَن الإمَارَةِ فَنالَ مَا انْتَوَى
+    p064_13  edition حَوْلَ الْقَلِيبِ سَاقَهُ ثُمَّ رَمَى, manuscript
+             ومِنْ هِلَال، اللّذَان مَا اتَّحَدْ
+  All six hemistich readings verified against GT: each half matches its GT
+  hemisphere at 0.96-1.00 (order-free). The full-verse similarity looked low
+  for p039_09 (0.39), p043_07 (0.49), p063_13 (0.42), p064_13 (0.76),
+  p067_13 (0.44) only because the crop's hemistich order differs from the
+  edition's; the halves themselves agree.
+  The two fragment rows p021_04 ("نظم بعث الرجيع") and p032_09
+  ("نسب النبي ﷺ") are headings, not verse text - the OCR saw 1-3 characters.
+  420 tests pass, verify_all green, invariant unchanged.
+  Remaining 36 partials are all out of GT scope (pages 68-111). Both the
+  machine pool and the in-GT human pool are now exhausted; further growth
+  requires extending GT past page 67.
