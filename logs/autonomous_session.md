@@ -406,3 +406,28 @@ what needs human eyes.
   Remaining 36 partials are all out of GT scope (pages 68-111). Both the
   machine pool and the in-GT human pool are now exhausted; further growth
   requires extending GT past page 67.
+
+- [t34] GT EXTENSION - investigated and stopped by the user's decision.
+  The gold layer ends at verse 620 (page 67); the manuscript continues to
+  page 111 with ~722 more verse lines that have no ground truth.
+  Sources checked for extension text:
+    - Local printed edition (عمود_النسب.md): 620 verses exactly. Ends there.
+    - Obsidian vault: only verses 1-300, no fuller copy.
+    - archive.org: the same manuscript (identical PDF hash
+      1e2bce.../azm101010 item) and a 1197-page typeset commentary,
+      "رياض السيرة والأدب في إكمال شرح عمود النسب" (olomnasb_ymail_20160505),
+      which quotes every verse verbatim.
+  The commentary is the only source that covers the tail. It proved unusable
+  as gold: its archive djvu OCR strips diacritics (4,809 combining marks in
+  2.7 MB, nearly all hamza/glottal, almost no vowel pointing), and its page
+  order in the djvu text is scrambled (verse 1's discussion sits at char
+  1,514,381 of 1,540,826 - near the end - while the file opens with the
+  title page). Our own PaddleOCR reads the JP2 page images cleanly and I
+  located the commentary's coverage of the Yarmouk verse (manuscript p68) at
+  commentary pages 1082-1086, confirming it does cover the tail. But its
+  verse quotations are printed undiacritized, so even mined perfectly they
+  would not give the vocalized text the gold layer needs.
+  DECISION (user): stop extending. The gold layer stays at 83 verses /
+  42 pages / 1565 positions. The machine and in-GT human pools are both
+  exhausted; further growth needs a vocalized edition of verses 621+, which
+  does not exist in any source I could reach.
