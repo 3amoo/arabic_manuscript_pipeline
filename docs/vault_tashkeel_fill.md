@@ -71,7 +71,8 @@ base letters cannot move by construction.
 
 ## 4. The finding that decides everything: coverage of the gold layer
 
-Measured against the 50-record reviewed gold layer:
+Measured against the 50-record reviewed gold layer (the state at first
+evaluation; §5 re-measures on the 84-record gold):
 
 > **The fill changed 0 of the 50 scored lines.**
 
@@ -99,17 +100,30 @@ way**, so this table measures the denominator, not the fill.
 
 ## 5. Decision
 
-**The gate passes and the tool is sound, but it is not production yet** — it
-moves nothing the project currently measures. Two things would change that:
+**The gate passed and the tool is sound, but it stays dormant.** Condition 1 below was met and
+the fill was re-measured on the enlarged gold; the result did not clear the bar.
 
-1. **Grow the gold layer into the vault's coverage window** (pages 11–38).
-   The reviewed gold's 50 records are concentrated on pages 23–67; only a
-   handful sit where the vault can fill. Reviewing crops on the early pages
-   would give the fill scored lines to act on.
+**Re-measurement (gold at 84 records, 2026-10-07).** The gold layer grew from 50 records on
+pages 23–67 to 84 records on 43 pages, overlapping the vault's window. Re-running the fill on
+the identical 83 scored lines:
+
+| layer | positions | correct | accuracy |
+|---|---|---|---|
+| raw | 1387 | 196 | 14.1% |
+| fill | 1410 | 207 | 14.7% |
+
+10 lines improved, 8 worsened, 6 unchanged (net +11 positions); base-letter similarity
+unchanged at **0.785** in both layers. A +0.6pp gain on 24 of 83 lines does not justify
+shipping a change that makes 8 lines worse — far below the 80% gate. **The fill remains
+dormant**, and the two ways to change that are unchanged:
+
+1. ~~Grow the gold layer into the vault's coverage window~~ — **done, and it did not
+   help** (above). The gold now covers 43 pages including the vault's pages 11–38 region.
 2. **Extend the vault's own transcription.** The vault covers ~300 of the
    poem's verses; the manuscript has ~620 in GT and more beyond. Coverage of
-   bare tokens in GT scope is **18.5%** today, and the ceiling is the vault's
-   extent, not the matching algorithm.
+   bare tokens in GT scope is **18.5%**, and the ceiling is the vault's
+   extent, not the matching algorithm. Extending the vault transcription is a
+   human task.
 
 The tool is committed dormant, the same status `restore_tashkeel.py` holds:
 present, measured, documented, and deliberately not wired into the production

@@ -457,3 +457,23 @@ what needs human eyes.
   insertions on base letters the OCR already had right. The fill remains
   DORMANT - the +0.6pp gain on 24 of 83 lines does not justify shipping a
   change that makes 8 lines worse, and the net is far below the 80% gate.
+
+[t36] docs: refresh the stale status documents (PROGRESS.md + fill doc)
+  The status docs still described the pre-enlargement gold layer. Updated:
+    docs/PROGRESS.md section 7 - rewrote "Where things stand" around the
+      closed state: 84 full_line of 126 records, in-GT queue exhausted, the
+      remaining 42 partial are out_of_gt_scope (pages 68-111).
+      Recorded the GT-extension search and its closure (printed edition ends
+      at 620, vault covers 1-300, the only tail commentary is undiacritized).
+      Recorded the fill re-measurement and its continued dormancy.
+      Data inventory 47 -> 126 records (84 full_line / 42 partial).
+      Vault pin 7e92a8e6 -> a3ee7965 (11 files, 172 KB, re-verified 2026-10-02).
+    docs/vault_tashkeel_fill.md section 5 - replaced the pre-enlargement
+      decision text with the re-measurement on the 84-record gold: identical
+      83-line set, raw 1387/196/14.1% vs fill 1410/207/14.7%, 10 improved /
+      8 worsened / 6 unchanged, base-letter similarity 0.785 unchanged.
+      Condition 1 (grow gold into the vault window) is struck through as
+      done-and-unhelpful; the fill stays dormant on condition 2 (extend the
+      vault transcription, a human task).
+    Section 4 of the same doc keeps its original 50-record numbers, now
+      labelled as the first-evaluation state with a pointer to section 5.

@@ -56,3 +56,10 @@ decided from vault corrections alone; it needs full-line readings from
 the 118-row manual review queue (rendered as crops in
 data/review_crops/), and only from rows whose crop pairing is verified
 or explicitly confirmed.
+
+**Update (2026-10-07): the gate has closed.** The queue delivered on the
+above — `data/reviewed_corrections.jsonl` now holds 126 records, **84 of
+them full_line**, which carries the gate past its ~50 threshold. Phase 3's
+fill was re-measured on that enlarged gold and stays dormant
+(`docs/vault_tashkeel_fill.md` §5). The tier table above remains the
+correct description of the 30 vote-correction records it covers.

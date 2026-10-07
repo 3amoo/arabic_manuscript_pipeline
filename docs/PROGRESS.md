@@ -308,9 +308,11 @@ positions where GT and OCR agree on the base letter):
   exactly the GT-confirmed tier), none regressed. The promotion also caught a real bug:
   `apply_corrections` had joined every line with double spaces, rewriting all 113 pages'
   whitespace and producing a phantom +0.14 CER on p40 with no character change.
-- **Gold corpus growth**: `data/reviewed_corrections.jsonl` now holds **47 records** (30
-  vote-corrections, 17 manual-review-queue) — **20 full_line / 27 partial**. Phase 3's
-  tashkeel gate needs ~50 full_line entries.
+- **Gold corpus growth**: `data/reviewed_corrections.jsonl` now holds **126 records** —
+  **84 full_line / 42 partial**. The 84 full_line entries all enter the reviewed gold layer
+  (43 pages, 1569 positions). Phase 3's tashkeel gate, which needed ~50 full_line entries,
+  **has closed**: the fill was re-measured on the enlarged gold and stays dormant
+  (`docs/vault_tashkeel_fill.md` §5).
 
 ### Tests
 
@@ -415,8 +417,8 @@ valuable output — they are recorded so the work is not redone.
 - `data/ground_truth/عمود النسب/` — `عمود_النسب.clean.md` (620 verses), the raw `.md`, an
   anomalies file; `data/ground_truth/عمود النسب نسخة 2/` — the additive reviewed-corrections
   gold layer
-- `data/reviewed_corrections.jsonl` — 47 records (20 full_line / 27 partial);
-  `data/review_crops/` — 118 rendered source-image crops
+- `data/reviewed_corrections.jsonl` — 126 records (84 full_line / 42 partial);
+  `data/review_crops/` — 118 rendered source-image crops + `pairing.json` manifest
 - `data/evaluation_reports/` — `006/`, `008/`, `017-final/`, `018-rebaseline/`,
   `019-escalation-pass/`, `real_cer_wer_report.txt`; `data/vault_snapshot/` (empty — the vault
   pin is by hash, not copy)
@@ -444,29 +446,42 @@ valuable output — they are recorded so the work is not redone.
 
 ## 7. Where things stand right now
 
-The latest work is **Phase 4, the manual-review queue** (commits `808ea7e` through `af76d05`,
-2026-09-28 → 2026-10-01). The 118 queue rows now all have rendered source-image crops
-(`data/review_crops/`), a joint crop-pairing manifest with a hemistich-coverage field and a
-pairing gate, conservative confidence tags, and two review batches — batch 1 registered
-(commit `304c13d`) and batch 2 (rows 21-40) sheeted with every verse crop aligned to its
-hand-transcribed gold verse so the reviewer confirms the image against an authoritative
-transcription rather than the noisy queue guess.
+The manual-review queue is **exhausted within ground-truth scope**. Of the 126 records now in
+`data/reviewed_corrections.jsonl`, 87 sit inside the printed GT window (pages ≤67) and all of
+those are resolved; the last machine-verified upgrades and the operator's final hand readings
+closed the gate at **84 full_line records** (83 in-window plus `p072_13`, a recovered record
+on page 72 that entered the gold with a synthetic verse number). The remaining 42 records are
+`partial`; 39 of them lie `out_of_gt_scope` (pages 68–111, past GT verse 620) and cannot be
+promoted without a vocalized source for verses 621+ — a search for one was run and **closed by
+user decision** (see below).
 
-Notable outcomes from the registered readings: 16 batch-1 readings (10 full_line, 6 partial),
-including 4 verse rows matching the gold exactly (p028_11 = GT v80, p031_06 = v113, p033_09 =
-v141, p034_08 = v156); two rows retracted on crop evidence; and a `line: 0` validation bug
-that had silently dropped three records fixed with a regression test. At the tip, `af76d05`
-registered **p044_08** — one crop carrying both hemistichs of GT v298 — as a single full-bayt
-`whole_line` entry, and corrected **p029_00** to القلادة after x5/x6 zoom OCR of the crop
-agreed with GT v81 against the reviewer's first reading القيادة.
+**The tashkeel fill is measured and dormant.** With the gate at 84, the gold layer now covers
+the vault's ~300-verse window, so the fill's own dormancy condition ("grow the gold layer into
+the vault's coverage window") was met and it was re-measured on the enlarged gold. On an
+identical 83-line set: raw 1387 positions / 196 correct / 14.1% → fill 1410 / 207 / 14.7% —
+10 lines improved, 8 worsened, 6 unchanged (net +11 positions), base-letter similarity
+unchanged at 0.785. The +0.6pp gain on 24 of 83 lines does not justify shipping a change that
+makes 8 lines worse, far below the 80% gate. **The fill stays dormant.**
+
+**GT extension: investigated and closed.** The manuscript has 113 pages but GT ends at verse
+620 (page 67); ~722 verse lines on pages 68–111 have no ground truth. Sources checked: the
+local printed edition (exactly 620 verses — it ends there too), the Obsidian vault (verses
+1–300 only), and archive.org (holds the same manuscript by PDF hash, plus a 1197-page typeset
+commentary whose discussion matches the manuscript's tail but whose verse quotations are
+printed **undiacritized**, and whose djvu OCR has scrambled page order). **No vocalized source
+for verses 621+ exists in any reachable source.** The user chose to stop here; the gold layer
+stays at 84 verses.
 
 **In flight / unfinished:**
 
-- The gold corpus is at **20 full_line of the ~50 needed** for Phase 3's tashkeel gate
-  (`docs/confidence_tags.md`, updated by the Phase 4 batches). The remaining 27 records are
-  partial and are excluded from gate calculations by rule.
-- Batch 2's rows 21-40 have been sheeted and aligned; their readings are not yet all
-  registered. Rows 41-118 of the queue are not yet batched.
+- The gold corpus closed at **84 full_line records** — the tashkeel gate's ~50 threshold
+  met and passed. The fill was re-measured on this enlarged gold and remains dormant (above).
+  The remaining 42 records are `partial`: 39 `out_of_gt_scope`, and the 4 in-window ones are
+  exhausted (3 are token-level vault patches whose rest-of-line was never read, and `p032_09`
+  is a retracted section heading).
+- 26 Gemini cross-reads remain blocked on the daily image quota (2 image requests/min/key,
+  both keys sharing one bucket). Those rows register as `partial` only and do not move the
+  gate.
 - The proposed `review_corrected_text/` layer does not exist and deliberately so: at 9
   applicable patches it was not worth building (`docs/output_patching.md`). The three output
   layers and their 136 escalation markers are untouched evidence.
@@ -478,10 +493,14 @@ agreed with GT v81 against the reviewer's first reading القيادة.
   deterministic (verified by cold A-vs-A tests), and the warm cache masks the divergence
   entirely. The stored corpus is the corpus — do not regenerate it
   (`docs/reproducibility.md`).
-- The external genealogy vault is pinned by content hash (`7e92a8e6…`, 11 markdown files, 168
+- The external genealogy vault is pinned by content hash (`a3ee7965…`, 11 markdown files, 172
   KB, `docs/genealogy_vault_pin.md`); a mismatch means the vault moved on and the corrections
   should be re-run, not that the pipeline broke.
 - GT for *لمعة النسب* could not be produced: it is not a digitally-referenced text (439 AH),
   its verses are unnumbered, and it needs a human reader of the images. This remains open to
   the user.
+- Extending GT past verse 620 (pages 68–111, ~722 verse lines) was investigated and **closed
+  by user decision**: no reachable source vocalizes those verses — the local printed edition
+  ends at 620, the vault covers 1–300, and the only tail-covering commentary prints its verse
+  quotations undiacritized. Those rows stay `partial` with `out_of_gt_scope` provenance.
 
