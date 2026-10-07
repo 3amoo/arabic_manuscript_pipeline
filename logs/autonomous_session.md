@@ -431,3 +431,29 @@ what needs human eyes.
   42 pages / 1565 positions. The machine and in-GT human pools are both
   exhausted; further growth needs a vocalized edition of verses 621+, which
   does not exist in any source I could reach.
+
+- [t35] PAIRING-GUARD CLEANUP + FILL RE-MEASURE on the enlarged gold.
+  Two full_line records were being silently downgraded by the ingester's
+  crop-pairing guard (_pairing_unverified, ingest_reviewed_corrections.py:281)
+  because their pairing-manifest "verified" flags predated the human reads:
+    p059_10 - the operator read the crop this session; the reading matches
+      GT v498 at 0.981 across both hemistichs. The flag was stale, not the
+      reading. Set pairing_confirmed: true, now enters the gold layer.
+    p032_09 - the reading "نسب النبي ﷺ" is a section HEADING, not a verse;
+      its best match across all 620 GT verses is 0.51. It cannot be a gold
+      verse regardless of how confidently it was read. Reclassified to
+      partial/not_text and kept only for provenance.
+  Gate 83 -> 84. Gold layer 84 verses across 43 pages, 1569 positions,
+  base CER 30.7, DER 31.4, acc 68.6.
+  With the gold layer now grown into the vault's coverage window (the exact
+  condition docs/vault_tashkeel_fill.md §5 said would end the fill's
+  dormancy), re-ran the fill and measured it honestly on the identical set:
+    raw : 1387 positions, 196 correct, acc 14.1%
+    fill: 1410 positions, 207 correct, acc 14.7%
+    10 lines improved, 8 worsened, 6 unchanged (net +11 correct positions)
+    base-letter similarity unchanged at 0.785 both layers - the fill
+    touches diacritics only, as designed.
+  The 8 regressions are the concern: they are over-eager sukun/dotting
+  insertions on base letters the OCR already had right. The fill remains
+  DORMANT - the +0.6pp gain on 24 of 83 lines does not justify shipping a
+  change that makes 8 lines worse, and the net is far below the 80% gate.
