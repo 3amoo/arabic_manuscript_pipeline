@@ -477,3 +477,32 @@ what needs human eyes.
       vault transcription, a human task).
     Section 4 of the same doc keeps its original 50-record numbers, now
       labelled as the first-evaluation state with a pointer to section 5.
+
+[t37] plans: commit the Phase 5 component plans + archive (close the plan corpus)
+  NEXT_DEVELOPMENT_PLAN_2.md Phase 5 had three items; two were already done
+  (backup-before-rebase-fix deleted earlier; the vault pin completed in
+  b0f6aa8 with hash a3ee7965 + drift audit). The remaining item was to commit
+  the untracked plan docs. They were never committed and had gone stale, so
+  they were refreshed first rather than committed as-is:
+    plans/components/evaluation.md - gold corpus 47/20-full_line -> closed at
+      84 full_line of 126 records, 43 pages, 1569 positions, base CER 30.7 /
+      DER 31.4 / acc 68.6. Added the fill re-measurement result. Open issues
+      rewritten: queue exhausted in scope, GT extension closed by decision.
+      Roadmap items 1-3 struck through as done/closed; 4-5 remain.
+    plans/components/tests_quality.md - 20 -> 22 wired modules, 400 -> 422
+      declared methods (420 passed / 2 skipped). Inventory table was missing
+      test_review_crop_pairing (11) and test_vault_tashkeel_fill (11); added,
+      and test_vote_correct_names (19) was absent from the table too.
+    plans/components/orchestration.md, output.md, evaluation.md - evidence
+      invariant 853419275001e5bbd407 / 251 files -> 60309548f2b265e6de11 /
+      318 files (the value verify_all.py itself holds; AGENTS.md's copy is a
+      summary that moves by design).
+    plans/components/vision_fallback.md, name_correction.md - roadmap items
+      for the queue/gate struck through as done; vault pin updated to
+      a3ee7965 with the drift history recorded.
+  plans_archive/ is a point-in-time review, so it was committed as-is except
+  for a new section 6 addendum tabulating which of its "still-open threads"
+  have since closed (1, 2, 3, 6 done/closed; 4, 5, 7 genuinely open) - so a
+  reader does not chase finished work.
+  Reverted pytest-regenerated data/evaluation_reports/019-escalation-pass/
+  before staging.
