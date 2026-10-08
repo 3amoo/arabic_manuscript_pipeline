@@ -506,3 +506,28 @@ what needs human eyes.
   reader does not chase finished work.
   Reverted pytest-regenerated data/evaluation_reports/019-escalation-pass/
   before staging.
+
+[t38] docs: rewrite the stale README and backfill specs 018-022 as stubs
+  README.md still described the pre-src/ flat layout (false since 2587731,
+  ~50 commits) and listed the removed Claude backend + ANTHROPIC_API_KEY.
+  Rewrote: the pipeline steps now name their real src/pipeline/* paths, the
+  vision-backend list points at rotation_order instead of hardcoding
+  Gemini/Groq/OpenRouter/Claude, the .env key list matches .env.example
+  (GEMINI_API_KEY1/2, SOVEREIGN, ATRIA - no ANTHROPIC), settings/prompts are
+  at config/, the project-structure block lists the actual package tree,
+  the output-structure block names the real layers (vault_corrected_text,
+  review/escalations.jsonl), and a new "Measuring accuracy" section points
+  at the GT harness. Verified the claims: set_dpi_scale exists in both
+  preprocessing modules, full_manuscript_corrected.txt is absent,
+  vision_escalations.txt exists.
+  Backfilled specs 018-022, which existed only as AGENTS.md §12 prose and
+  whose commits were squashed into a3fcdc3 during the history rewrite. Each
+  is a marked stub carrying the goal, measurement, and decision, pointing
+  at its AGENTS.md entry. The key one is 018, which reverses 017's
+  "escalation is inert" headline - that reversal was undiscoverable from
+  the spec corpus until now.
+  Added specs/INDEX.md: a 22-row table whose supersession column carries
+  the reversals (008 corrects 006's alignment freeze; 018 supersedes 017;
+  014 closes the fine-tune line 013 opened). Explains why 018-022 are
+  stubs. Corrected two invariant hashes in the stubs that no longer resolve
+  after the commit-integrity rewrite - the stubs now cite report dirs.
