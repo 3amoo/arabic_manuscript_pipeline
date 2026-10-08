@@ -8,12 +8,51 @@ for why conflating them hides the exact problem we are tracking.
 |------|-----------------|-----|---------------------|-------|
 | 2026-09-20 | 19.6% | 34.9% | 65.1% | 26 |
 | 2026-09-20 (CER/WER/diacritics, corpus benchmark) | 23.7% CER | — | 83.1% | 113 |
+| 2026-10-08 | 18.7% | 34.2% | 65.8% | 26 |
 
 The DER row is the Group B metric (`scripts/measure_der.py`); the corpus
 benchmark row is the CER/WER/diacritic-density report that
 `verify_all.py` regenerates. The two measure different things on
 different page sets and are not interchangeable — see
 `scripts/measure_der.py`'s module docstring.
+
+**2026-10-08 row:** the same 26 `matched` pages, re-measured on
+`vault_corrected_text` (the corrected layer) rather than the 2026-09-20
+raw layer. The improvement is real but small and is *not* attributable to
+an OCR change: the corpus has had corrections applied since the baseline
+run. This row exists because `evaluate_cer`'s headline now prints the pair
+directly (see below), and the matched-only pool it reports must match this
+file exactly — the two are the same computation.
+
+## 2026-10-08 — DER surfaced in the corpus headline
+
+`build_corpus_report()` now reports the base-letter CER / DER pair next to
+the density ratio it always printed, computed from the same raw GT/output
+slices. The pair lives in a shared module
+(`src/pipeline/evaluation/diacritic_scoring.py`) so `scripts/measure_der.py`
+and `evaluate_cer.py` are one implementation, not two that can drift; the
+dependency direction stays scripts/ → src/.
+
+The headline on `vault_corrected_text`:
+
+- **all 45 evaluated pages:** base-letter CER 27.1% / DER 35.8% / diacritic
+  accuracy 64.2% (11,737 positions)
+- **matched only (26 pages):** base-letter CER 18.7% / DER 34.2% /
+  diacritic accuracy 65.8% (7,564 positions) — byte-identical to
+  `scripts/measure_der.py` on the same layer
+
+Both pools are reported because they answer different questions. The
+matched-only figure is the clean-denominator measurement; the all-pages
+figure includes the 15 low-confidence and 2 recovered pages and is the
+one comparable to the 23.7% aggregate CER.
+
+**Why the density ratio was not enough:** it counts marks without asking
+whether they sit on the right letter — the exact artifact that made the
+spec 016 tashkeel restoration look like a +3.6pp gain when 87% of the
+filled marks disagreed with the vault. `diacritics accuracy: 83.0%` and
+`DER: 34.2%` are both true and both about the same corpus; the first is a
+survival count, the second is a correctness count. Quote DER for
+correctness.
 
 ## 2026-09-20 — Group B findings (baseline + two A/B experiments)
 
@@ -368,3 +407,4 @@ actually target the DER problem. This needs live backend access to
 answer and is recorded here as a research question only, deliberately
 not scoped as a task.
 | 2026-10-02 | 31.1% | 9.4% | 90.6% | 18 |
+| 2026-10-08 | 18.7% | 34.2% | 65.8% | 26 |

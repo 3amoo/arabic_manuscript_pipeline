@@ -105,9 +105,10 @@ identical 83-line set, raw 1387 positions / 196 correct / 14.1% → fill 1410 / 
   closed door.
 - **The 118-row manual review queue is exhausted in scope.** All in-GT rows are resolved;
   the remaining rows are `out_of_gt_scope` and held as `partial` (`docs/PROGRESS.md` §7).
-- **CER's conflation of dropped letters with dropped diacritics** is only worked
-  around by `measure_der.py`, not fixed in the headline metric — a reader of
-  "23.7%" alone cannot see the 65.1% diacritic accuracy behind it.
+- **CER's conflation of dropped letters with dropped diacritics** is now surfaced in the
+  headline itself: the report prints base-letter CER and DER next to the aggregate CER
+  (roadmap item 4, done). The density ratio remains and is now labelled as a survival
+  count, not a correctness count — quoting DER is the correct move for diacritic quality.
 - **The evidence invariant moves on every correction applied or reverted**, by
   design; `verify_all.py`'s comment trail is the only record of why, and each move
   requires a manual re-pin.
@@ -125,8 +126,19 @@ identical 83-line set, raw 1387 positions / 196 correct / 14.1% → fill 1410 / 
 3. ~~**Extend GT coverage beyond pages 23–67**~~ — **closed by user decision** after a
    source search found no vocalized text for verses 621+ (printed edition ends at 620,
    vault covers 1–300, the only tail commentary is undiacritized).
-4. **Surface DER alongside CER in the headline report** — have `build_corpus_report`
-   print (or link to) the base-letter CER / DER pair so the diacritic reality is not
-   hidden behind the aggregate. Effort: small.
-5. **Retire or clearly mark `benchmark_cer_wer.py` as legacy** in favour of the
-   alignment mode, so the two entry points stop diverging. Effort: small.
+4. ~~**Surface DER alongside CER in the headline report**~~ — **done (2026-10-08).**
+   `build_corpus_report` now prints the base-letter CER / DER pair next to
+   the density ratio: on `vault_corrected_text`, **27.1% / 35.8%** over all
+   45 evaluated pages and **18.7% / 34.2%** over the 26 matched-only. The
+   pair is computed in a shared module
+   (`src/pipeline/evaluation/diacritic_scoring.py`) so the standalone DER
+   script and the report cannot drift; the matched-only pool matches
+   `scripts/measure_der.py` exactly. The density ratio stays in the report
+   too — it answers a different question (how many marks survived) and the
+   two are now labelled so a reader knows which to quote.
+5. ~~**Retire or clearly mark `benchmark_cer_wer.py` as legacy**~~ — **done (2026-10-08).**
+   Its module docstring now opens with a LEGACY PATH banner explaining that
+   the alignment path in `evaluate_cer.py` is the project's benchmark and
+   why (per-page verse-window scoring with an honest denominator, plus the
+   DER pair). It is kept as a working, tested two-file cross-check rather
+   than deleted, and its `--help` and test module still pass.

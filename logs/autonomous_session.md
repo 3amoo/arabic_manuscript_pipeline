@@ -531,3 +531,41 @@ what needs human eyes.
   014 closes the fine-tune line 013 opened). Explains why 018-022 are
   stubs. Corrected two invariant hashes in the stubs that no longer resolve
   after the commit-integrity rewrite - the stubs now cite report dirs.
+
+[t39] eval: surface the honest DER pair in the corpus headline + mark the legacy path
+  The evaluation roadmap had two small open items; both closed.
+  Item 4 (surface DER): build_corpus_report printed only a diacritic
+  DENSITY ratio (83.0%) - which counts marks without asking whether they
+    sit on the right letter, exactly the artifact that made spec 016's
+  tashkeel fill look like +3.6pp when 87% of its marks were wrong. The
+  honest pair (base-letter CER + DER over letters both sides agree on)
+  existed only in scripts/measure_der.py.
+    Extracted the pure scoring core into
+    src/pipeline/evaluation/diacritic_scoring.py so both consumers share
+    one implementation (dependency direction stays scripts -> src;
+    evaluate_cer must not import scripts). measure_der.py now imports
+    from it, re-exporting the private names its test module uses, so the
+    25 existing DER tests pass unchanged.
+    build_corpus_report now computes the pair per page from the same raw
+    GT/output slices and reports two pools: all 45 evaluated pages
+    (base-letter CER 27.1% / DER 35.8% / acc 64.2%, 11737 positions) and
+    matched-only 26 pages (18.7% / 34.2% / 65.8%, 7564 positions). The
+    matched-only pool matches scripts/measure_der.py byte-for-byte on the
+    same layer - verified directly. Both pools are printed because they
+    answer different questions (clean denominator vs. comparability with
+    the 23.7% aggregate CER).
+    The density ratio stays in the report, now labelled as a survival
+    count rather than a correctness count.
+    Headline on vault_corrected_text still reproduces the pinned
+    23.7 / 59.7 / 83.0 exactly, so verify_all's EXPECTED is untouched.
+  Item 5 (mark benchmark_cer_wer.py legacy): added a LEGACY PATH banner
+    to its module docstring. Kept rather than deleted - it is a working
+    tested two-file cross-check; just not the project's benchmark.
+  Added 5 regression tests for the new per-page aggregation
+  (_page_der_pair): identical pages perfect, marks pooled across verses,
+  verse-count mismatch truncates rather than manufacturing errors,
+  empty page returns None (not a misleading 0.0), base_cer is the mean.
+  420 -> 425 tests. verify_all: all four checks PASS, invariant
+  60309548f2b265e6de11 unchanged. Reverted a pytest-appended
+  accuracy_history row so the file only carries deliberate measurements,
+  then added the real 2026-10-08 row plus an explanatory section.

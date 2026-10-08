@@ -423,6 +423,14 @@ def build_corpus_report(document, entries, gt_verses, raw_dir, report_dir,
                 pq["diacritics"] = analyze_diacritics(
                     "\n".join(raw_gt[:n]), "\n".join(raw_out[:n])
                 )
+                # The honest pair (spec 011 / measure_der): base-letter CER
+                # and DER over letters both sides agree on. The density
+                # ratio above counts marks without asking whether they are
+                # right, which is exactly the artifact spec 016 rejected;
+                # this pair is what a reader needs to see past it.
+                der_page = _page_der_pair(raw_gt[:n], raw_out[:n])
+                if der_page is not None:
+                    pq["der_metrics"] = der_page
         pages.append(pq)
 
     ref_all = " ".join(concat_ref)
@@ -494,6 +502,44 @@ def build_corpus_report(document, entries, gt_verses, raw_dir, report_dir,
     )
     pages_excluded = len(pages) - len(scored_pages)
 
+    # The honest diacritic pair, pooled over every page that had one
+    # (spec 011). The density ratio in dia_total counts marks without
+    # asking whether they sit on the right letter; this pair does, and it
+    # is the number a reader should quote for diacritic quality.
+    der_pages = [p["der_metrics"] for p in pages if p.get("der_metrics")]
+
+    def _pool(sel):
+        hits = sum(p["correct"] for p in sel)
+        misses = sum(p["errors"] for p in sel)
+        pos = hits + misses
+        return {
+            "base_cer": (
+                round(sum(p["base_cer"] for p in sel) / len(sel), 4)
+                if sel else None
+            ),
+            "der": round(misses / pos, 4) if pos else None,
+            "diacritic_accuracy": round(hits / pos, 4) if pos else None,
+            "positions": pos,
+            "pages_scored": len(sel),
+        }
+
+    der_all = [p for p in pages if p.get("der_metrics")]
+    der_matched = [
+        p for p in der_all
+        if p.get("der_metrics") and p["status"] == "matched"
+    ]
+    der_total = _pool([p["der_metrics"] for p in der_all])
+    der_matched_total = _pool([p["der_metrics"] for p in der_matched])
+    der_total["note"] = (
+        "DER is computed only over letters both sides agree on, so a "
+        "base-letter misread is never also charged as a diacritic "
+        "error. base_cer is CER with all diacritics stripped. The "
+        "`all` pool includes low-confidence and recovered pages; "
+        "`matched_only` is the clean-denominator figure and matches "
+        "scripts/measure_der.py exactly. See docs/AGENTS.md §12 "
+        "(spec 011)."
+    )
+
     report = {
         "document": document,
         "note": "Distance to a working benchmark (Constitution VI), not "
@@ -518,6 +564,8 @@ def build_corpus_report(document, entries, gt_verses, raw_dir, report_dir,
         "weighted_cer": weighted_cer,
         "weighted_wer": weighted_wer,
         "diacritics_total": dia_total,
+        "der_total": der_total,
+        "der_matched_only": der_matched_total,
         "hallucination_total": hall_total,
         "worst_pages": worst,
         "best_pages": best,
@@ -569,6 +617,38 @@ def _raw_out_verses(raw_path):
     return out
 
 
+def _page_der_pair(gt_verses, out_verses):
+    """
+    Base-letter CER + DER for one page's verse pairs.
+
+    Returns None when the page has no comparable verses, so the corpus
+    aggregate simply skips it rather than recording a 0.0 that would read
+    as perfection.
+    """
+    from src.pipeline.evaluation.diacritic_scoring import score_verse
+
+    n = min(len(gt_verses), len(out_verses))
+    if n == 0:
+        return None
+
+    base_cer_sum = 0.0
+    hits = misses = 0
+    for i in range(n):
+        res = score_verse(gt_verses[i], out_verses[i])
+        base_cer_sum += res["base_cer"]
+        hits += res["correct"]
+        misses += res["errors"]
+
+    positions = hits + misses
+    return {
+        "base_cer": round(base_cer_sum / n, 4),
+        "der": round(misses / positions, 4) if positions else None,
+        "positions": positions,
+        "correct": hits,
+        "errors": misses,
+    }
+
+
 def _write_text_report(report, path):
     r = report
     lines = []
@@ -610,6 +690,27 @@ def _write_text_report(report, path):
             f"correct {d['correct']} / missing {d['missing']} / "
             f"wrong {d['wrong']} / extra {d['extra']}"
         )
+    # The honest pair (spec 011): the density ratio above counts marks
+    # without asking whether they are right. base_cer is CER with
+    # diacritics stripped; DER is the error rate on letters both sides
+    # agree on. A reader quoting a diacritic number should quote this one.
+    dt = r.get("der_total") or {}
+    if dt.get("positions"):
+        lines.append(
+            f"DER: base-letter CER {dt['base_cer'] * 100:.1f}% | "
+            f"DER {dt['der'] * 100:.1f}% | دقة التشكيل "
+            f"{dt['diacritic_accuracy'] * 100:.1f}% "
+            f"({dt['positions']} موضع، {dt['pages_scored']} صفحة)"
+        )
+        dm = r.get("der_matched_only") or {}
+        if dm.get("positions"):
+            lines.append(
+                f"  النظيف فقط (matched): base-letter CER "
+                f"{dm['base_cer'] * 100:.1f}% | DER "
+                f"{dm['der'] * 100:.1f}% | دقة التشكيل "
+                f"{dm['diacritic_accuracy'] * 100:.1f}% "
+                f"({dm['positions']} موضع، {dm['pages_scored']} صفحة)"
+            )
     lines.append("")
     lines.append(
         f"أبيات الهلوسة المشتبهة (تشخيصي): {r['hallucination_total']}"
@@ -688,6 +789,18 @@ def _run_alignment_mode(args):
             f"diacritics accuracy: "
             f"{report['diacritics_total']['accuracy'] * 100:.1f}%"
         )
+    # The honest pair (spec 011): base_cer shows how much of the CER is
+    # base letters vs. marks, and DER is the diacritic error rate on
+    # letters both sides agree on. Printed so a headline reader sees the
+    # diacritic reality behind the aggregate CER.
+    dt = report.get("der_total") or {}
+    if dt.get("positions"):
+        print(f"base-letter CER: {dt['base_cer'] * 100:.1f}%")
+        print(f"DER: {dt['der'] * 100:.1f}%")
+    dm = report.get("der_matched_only") or {}
+    if dm.get("positions"):
+        print(f"base-letter CER (matched only): {dm['base_cer'] * 100:.1f}%")
+        print(f"DER (matched only): {dm['der'] * 100:.1f}%")
 
     if args.heatmap:
         _write_heatmap(report, _Path(args.report_dir) / "heatmap.txt")

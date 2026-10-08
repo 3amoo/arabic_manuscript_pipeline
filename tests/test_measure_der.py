@@ -177,5 +177,51 @@ class TestScoreVerse(unittest.TestCase):
         json.dumps(r, ensure_ascii=False)
 
 
+class TestPageDerPair(unittest.TestCase):
+    """The per-page aggregation evaluate_cer now reports in its headline.
+
+    These pin the pooling arithmetic and the empty-page guard, because
+    build_corpus_report's DER fields are the honest diacritic headline
+    and a silent regression there would mislead every future reader of
+    the benchmark.
+    """
+
+    def _pair(self, gt, out):
+        from src.pipeline.evaluation.evaluate_cer import _page_der_pair
+        return _page_der_pair(gt, out)
+
+    def test_identical_pages_are_perfect(self):
+        r = self._pair(["كِتَابٌ"], ["كِتَابٌ"])
+        self.assertEqual(r["base_cer"], 0.0)
+        self.assertEqual(r["der"], 0.0)
+        self.assertEqual(r["errors"], 0)
+
+    def test_marks_pooled_across_verses(self):
+        # Two verses, each losing one of two marked positions.
+        r = self._pair(["كَتَبَ", "نَصَرَ"], ["كتب", "نصر"])
+        self.assertEqual(r["correct"], 0)
+        self.assertEqual(r["errors"], 6)
+        self.assertEqual(r["positions"], 6)
+        self.assertEqual(r["der"], 1.0)
+
+    def test_mismatched_verse_count_truncates(self):
+        # The page's output is short one verse; the extra GT verse is
+        # skipped, not manufactured into diacritic errors.
+        r = self._pair(["كَتَبَ", "نَصَرَ"], ["كتب"])
+        self.assertEqual(r["positions"], 3)
+        self.assertEqual(r["errors"], 3)
+
+    def test_empty_page_returns_none(self):
+        # None, not a dict of zeros: the corpus aggregate must skip such a
+        # page rather than recording a 0.0 that would read as perfection.
+        self.assertIsNone(self._pair([], ["كَتَبَ"]))
+        self.assertIsNone(self._pair(["كَتَبَ"], []))
+
+    def test_base_cer_is_the_mean_over_verses(self):
+        # base_cer is averaged per verse, then over the page.
+        r = self._pair(["كَتَبَ"], ["كَتَبَ"])
+        self.assertEqual(r["base_cer"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

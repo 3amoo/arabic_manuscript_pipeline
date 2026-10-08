@@ -1,11 +1,23 @@
 #!/usr/bin/env python3
 """
-CER/WER Benchmarking Tool
+CER/WER Benchmarking Tool  —  LEGACY PATH
+
+Superseded by the alignment-based measurement in
+`src/pipeline/evaluation/evaluate_cer.py`, which is what `verify_all.py`
+regenerates and what every spec since 006 quotes. This tool scores a
+whole document as one concatenated blob against a whole GT file; the
+alignment path scores per page against a verse-range window and reports
+the honest denominator (clean vs. low-confidence vs. recovered), plus
+the DER pair the density ratio cannot see.
+
+Kept because it is a working, tested entry point and a useful
+cross-check on a plain two-file comparison. Do NOT quote its numbers as
+the project's benchmark — use `evaluate_cer.py --alignment ...`.
 
 Measures Character Error Rate (CER) and Word Error Rate (WER) between
 ground truth reference and OCR pipeline output using jiwer library.
 
-Version: 0.2.0
+Version: 0.2.0.
 """
 
 __version__ = "0.2.0"
