@@ -569,3 +569,42 @@ what needs human eyes.
   60309548f2b265e6de11 unchanged. Reverted a pytest-appended
   accuracy_history row so the file only carries deliberate measurements,
   then added the real 2026-10-08 row plus an explanatory section.
+
+[t40] plans: write REMAINING_WORK_PLAN.md, the successor to NDP2
+  NEXT_DEVELOPMENT_PLAN_2.md's Phases 0-5 are all complete, and its terminal
+  result was negative (the tashkeel gate passed, the fill measured
+  net-negative). Wrote plans/REMAINING_WORK_PLAN.md as the new
+  plan-of-record: 6 phases, 22 actionable items, each verified against the
+  code on 2026-10-08 rather than read off a roadmap.
+    Phase A - the one accuracy lever left: the adjacent-band merge pass.
+      Every OCR-side lever is measured shut; this survives because it is a
+      SEGMENTATION lever targeting the measured root cause of the 17
+      full_width low-confidence queue rows. Ship only if the paired
+      measurement is net-positive - the same bar the fill failed.
+    Phase B - 8 mechanical test-coverage items (tounicode_repair, ocr_cache,
+      repeated_verbatim_tracker, preprocessing, wire verify_jiwer/
+      verify_cer_harness, marker-# one-liner, smoke-light routing,
+      detect_columns consumer-or-delete).
+    Phase C - doc/code reconciliation. Found a real defect while verifying:
+      AGENTS.md section 4.4/4.5 and the CHANGELOG describe the 85%
+      usable-character rule, HYBRID file classification, and
+      pdf_text_extractor.detect_pdf_type() as IMPLEMENTED. None of it
+      exists - verified by direct search: no detect_pdf_type, no
+      extract_direct_text, no usable_char_ratio, no 0.85 anywhere in src/.
+      input_handler.py:142-151 retires the whole text-layer path in a
+      comment (broken ToUnicode produces position-permuted Arabic that
+      passes any codepoint check; the spec-021 repair is cross-check-only).
+      Task 12 corrects the contract to say what the code does.
+    Phase D - 5 small tooling items (generated invariant history, mechanical
+      no-regen guard, recurring vault-drift check, reproducibility note,
+      escalation auto-detector).
+    Phase E - blocked/closed (لمعة GT needs a human; correction stage
+      unmeasurable, backends dead; GT past 620 closed by decision).
+    Phase F - 10 guardrails needing no action (surya off, fine-tuning
+      closed, etc.) - recorded so they are not reopened.
+  Execution order is C task 12 first (it is the only item fixing active
+  misinformation), then A, then B, then D.
+  Marked three already-done items as struck-through in the component
+  roadmaps so the plan-of-record and the component docs agree: the README
+  rewrite and the AGENTS test-count re-pin (both done in t38/t39 but still
+  listed open in ingestion.md/orchestration.md/tests_quality.md).

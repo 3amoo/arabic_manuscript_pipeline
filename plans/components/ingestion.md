@@ -97,8 +97,7 @@ exactly one position — but the 83-vs-26 split is not explained anywhere in the
    entries as retired, matching the `direct_text` retirement note already in
    `input_handler.py:142-151`. Effort: small. Rationale: an operating contract
    that describes a module that does not exist will misdirect the next change.
-2. **Fix `README.md`'s layout section** (or link it to `docs/PROGRESS.md` §2,
-   which is accurate). Effort: small.
+2. ~~**Fix `README.md`'s layout section**~~ — **done (2026-10-08, `REMAINING_WORK_PLAN.md` Phase C task 17).** The README now describes the `src/pipeline/` package, the real config/env paths, and the actual output layers.
 3. **Add a regression test for `tounicode_repair`** covering the guarded
    adjacent-swap's refusal to guess (a corrupted word whose swap candidate is not
    in the vocabulary stays unchanged). There is currently no test module for it.

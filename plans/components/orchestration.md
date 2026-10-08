@@ -90,10 +90,7 @@ it standalone). The config file is effectively a compressed measurement log.
 
 ## Roadmap
 
-1. **Fix `README.md`** to match `docs/PROGRESS.md` §2 (the accurate description), or
-   replace its architecture section with a pointer. Effort: small. Rationale: it is
-   the first file a new collaborator reads and it is wrong about the layout, the
-   imports, and several modules.
+1. ~~**Fix `README.md`**~~ — **done (2026-10-08, `REMAINING_WORK_PLAN.md` Phase C task 17).** The README now describes the `src/pipeline/` package, the real config/env paths, the actual output layers, and the GT harness.
 2. **Reconcile `docs/AGENTS.md` with the code** — retire the §4.4/§4.5
    `pdf_text_extractor` / HYBRID-classification entries (the module was deleted) and
    any other stale §3 status rows. Effort: medium, mostly careful reading. Rationale:

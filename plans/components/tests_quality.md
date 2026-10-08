@@ -102,8 +102,7 @@ runs without quota or GPU.
    invoke them as a fifth check). Effort: small. Rationale: they are exactly the
    "passing but unwired" class Phase 0 fixed; a silent drift in the CER measurement
    machine would not currently trip the gate.
-2. **Re-pin the test count** in `docs/AGENTS.md` to the current 400, or change the
-   pin to a range/`>N` form so it stops aging. Effort: trivial.
+2. ~~**Re-pin the test count** in `docs/AGENTS.md`~~ — **done (2026-10-08, `REMAINING_WORK_PLAN.md` Phase C task 17).** AGENTS §11 now reads 425 OK / 22 wired modules, with the stale 368/20 figure marked as such. Note the pin still ages by one every time a test is added — Phase B task 11 of the remaining-work plan says to re-pin after each addition, or change the pin to a `>N` form so it stops aging.
 3. **Add `tests/test_tounicode_repair.py`** — the guarded adjacent-swap's refusal to
    guess (vocabulary miss → word unchanged) and `learn_corrections`'s
    single-anagram-only rule. Effort: small. Rationale: the module's entire safety
