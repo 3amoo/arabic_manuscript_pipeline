@@ -56,16 +56,28 @@ moved between generation and now.
 
 ## Practical consequences
 
-1. **The stored corpus is the corpus.** Do not regenerate it. A full cold
-   re-run would silently rewrite 100+ pages with slightly different text and
-   break every measured number, the evidence invariant, and the gold alignment.
-2. **`verify_all`'s smoke check is local evidence, not global.** It proves
+1. **The stored corpus is the corpus.** The constraint is now mechanical, not
+   prose: `main.py` refuses to overwrite an existing `raw_text/page_NNN.txt`
+   and exits 1 naming the page, so a page-range run can no longer silently
+   rewrite shipped evidence — pass `--regenerate` to overwrite deliberately.
+   A page whose file does not exist yet is written normally, so the
+   fresh-run path is completely open. A full cold re-run would silently
+   rewrite 100+ pages with slightly different text and break every measured
+   number, the evidence invariant, and the gold alignment; the guard makes
+   that a decision instead of an accident.
+2. **The smoke range is the explicit exception.** `verify_all`'s smoke check
+   runs `main.py --start 24 --end 26 --regenerate` — the flag is visible in
+   the command rather than silent, which is the point. Pages 24–26 were
+   regenerated 2026-09-22 20:07, *after* the venv rebuild, so overwriting
+   them is byte-identical and safe; every other range would now refuse
+   without the flag.
+3. **`verify_all`'s smoke check is local evidence, not global.** It proves
    pages 24–26 reproduce; it does not prove the other 108 pages do. The
    evidence invariant guards the *shipped* bytes, which is the right guarantee.
-3. **The OCR cache is load-bearing for reproduction.** It is committed to
+4. **The OCR cache is load-bearing for reproduction.** It is committed to
    keeping the corpus replayable; treat `data/output/.cache/ocr_cache.sqlite3`
    as part of the evidence, not as disposable scratch.
-4. **Crop pairing inherits this.** `scripts/render_review_crops.py` re-runs the
+5. **Crop pairing inherits this.** `scripts/render_review_crops.py` re-runs the
    detectors and OCR to pair a queue row to its band; on pages where fresh OCR
    differs from stored, the pairing can fail textually and falls back to a
    positional best guess. That is why it records `verified: false` and the

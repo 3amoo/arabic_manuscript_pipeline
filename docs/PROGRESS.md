@@ -316,13 +316,13 @@ positions where GT and OCR agree on the base letter):
 
 ### Tests
 
-`verify_all.py` runs 28 wired unittest modules. The pinned expectation in `docs/AGENTS.md` is
-**393+ OK with 2 skipped** (floor form, set 2026-10-11; the current count is **414** after Phase B
-added 111 tests across 7 new modules). That number is what `python -m unittest` collects — i.e.
-what `verify_all.py` actually executes. `pytest --collect-only` reports more over the same
-modules, but the surplus is module-level `def test_*` functions (notably all of
-`tests/test_benchmark_cer_wer.py`) that unittest never collects, so the pytest figure is not what
-the gate runs. The floor form stops the pin aging by one per test addition.
+`verify_all.py` runs 30 wired unittest modules. The pinned expectation in `docs/AGENTS.md` is
+**393+ OK with 2 skipped** (floor form, set 2026-10-11; the current count is **448** after Phase B
+added 111 tests across 7 new modules and Phase D added 34 across 2). That number is what
+`python -m unittest` collects — i.e. what `verify_all.py` actually executes. `pytest --collect-only`
+reports more over the same modules, but the surplus is module-level `def test_*` functions (notably
+all of `tests/test_benchmark_cer_wer.py`) that unittest never collects, so the pytest figure is not
+what the gate runs. The floor form stops the pin aging by one per test addition.
 
 ---
 

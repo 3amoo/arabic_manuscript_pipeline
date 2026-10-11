@@ -60,6 +60,49 @@ _ink_density_threshold = 0.02
 _ink_density_threshold_warned = False
 
 
+class ExistingPageRefused(RuntimeError):
+    """The corpus-regeneration guard (Phase D task 19) refused to let a
+    page be written because its raw_text file already exists on disk.
+
+    This is a deliberate stop, not a crash: docs/reproducibility.md shows
+    a cold re-run of the stored corpus does NOT reproduce byte-for-byte
+    (the venv was rebuilt after the corpus was generated), so letting a
+    page-range run silently overwrite shipped evidence would destroy the
+    one artifact every measured number rests on. The operator decides to
+    regenerate, out loud, with --regenerate; the message names the page
+    and the flag so the reason is visible at the point of refusal.
+    """
+
+
+def _refuse_to_overwrite_page(page_path: Path, regenerate: bool) -> None:
+    """
+    Mechanical "do not regenerate the corpus" guard (Phase D task 19).
+
+    The prose rule in docs/reproducibility.md ("do not regenerate it")
+    relied on a human remembering it. This function makes it a property
+    of the write path instead: save_page() is only reached for a page
+    whose raw_text file does NOT already exist, unless the caller passed
+    --regenerate. A fresh page (file absent) is written normally, which
+    keeps the fresh-run path completely untouched.
+
+    Pure on purpose (path existence + a boolean), with no dependency on
+    the OCR stack, so the guard is unit-testable against a temp output
+    root without ever touching the real data/output corpus. Callers that
+    intend the overwrite pass the flag explicitly, which is what makes
+    verify_all.py's smoke run a VISIBLE regeneration rather than a
+    silent one.
+    """
+    if regenerate or not page_path.exists():
+        return
+    raise ExistingPageRefused(
+        f"refusing to overwrite existing evidence page "
+        f"{page_path.parent.name}/{page_path.name} under "
+        f"{page_path.parents[1].name}/ — the stored corpus does not "
+        f"reproduce from a cold re-run (see docs/reproducibility.md). "
+        f"Re-run with --regenerate to overwrite it deliberately."
+    )
+
+
 def _compute_ink_ratio(crop_img_bgr) -> Optional[float]:
     """
     Measure the ink density of a crop image: the fraction of pixels that
@@ -1163,6 +1206,19 @@ def parse_args():
         help="Last page number to process (inclusive). Omit to go to "
              "the last page of each document.",
     )
+    parser.add_argument(
+        "--regenerate", action="store_true",
+        help="Allow overwriting raw_text/ page files that ALREADY EXIST "
+             "on disk. Off by default: a cold re-run of the stored corpus "
+             "does not reproduce byte-for-byte (docs/reproducibility.md), "
+             "so re-OCR of an existing page must be a deliberate, visible "
+             "decision rather than the default of a page-range run. Fresh "
+             "pages (no existing file) are always written normally, so "
+             "this only governs overwrite of shipped evidence. "
+             "verify_all.py's smoke run passes it for pages 24-26, the "
+             "one range that was deliberately regenerated after the venv "
+             "rebuild and does reproduce.",
+    )
     return parser.parse_args()
 
 
@@ -1170,7 +1226,8 @@ def process_document(file_path: Path, config: dict, ocr_engine: OCREngine,
                       input_handler: InputHandler, output_generator: OutputGenerator,
                       vision_engine: VisionFallbackEngine,
                       surya_detector: SuryaLineDetector = None,
-                      start_page: int = None, end_page: int = None) -> dict:
+                      start_page: int = None, end_page: int = None,
+                      regenerate: bool = False) -> dict:
     """Process a single document, routing each page through the poetry or
     prose path automatically. Each page is saved to disk (via
     output_generator.save_page) as soon as it finishes, rather than
@@ -1239,6 +1296,16 @@ def process_document(file_path: Path, config: dict, ocr_engine: OCREngine,
 
     for page_data in pages:
         page_num = page_data['page_num']
+
+        # Corpus-regeneration guard (Phase D task 19): check BEFORE the
+        # expensive OCR work, not after it. Refusing a page that has
+        # already been shipped is cheap; spending two minutes of GPU OCR
+        # on a page the guard will then refuse is not. The guard is a
+        # no-op for a page whose file does not exist yet.
+        _refuse_to_overwrite_page(
+            output_generator.page_path(document_name, page_num), regenerate
+        )
+
         logger.info(f"  Processing page {page_num}/{len(pages)}")
 
         image = page_data['image']
@@ -1391,12 +1458,22 @@ def main():
         try:
             result = process_document(file_path, config, ocr_engine, input_handler,
                                        output_generator, vision_engine, surya_detector,
-                                       start_page=args.start, end_page=args.end)
+                                       start_page=args.start, end_page=args.end,
+                                       regenerate=args.regenerate)
             logger.info(
                 f"Finished {file_path.name}: {result['page_count']} pages "
                 f"in {result['processing_time']:.2f}s "
                 f"(saved incrementally to data/output/{result['document_name']}/)"
             )
+        except ExistingPageRefused as e:
+            # Deliberate stop, not a transient per-file failure: the guard
+            # caught an attempt to overwrite shipped evidence. Treating it
+            # like the generic Exception below (log + continue to the next
+            # file, then "Pipeline completed successfully") would turn a
+            # refusal into a silent no-op — the exact failure mode the
+            # guard exists to make visible. Fail with a clear reason.
+            logger.error(str(e))
+            sys.exit(1)
         except Exception as e:
             logger.error(f"Failed to process {file_path.name}: {e}", exc_info=True)
             continue

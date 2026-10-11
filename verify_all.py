@@ -4,12 +4,22 @@
 Runs the four checks that ended every spec session, in order:
   1. evidence invariant  — sha256 over every .txt under data/output + data/ground_truth
   2. unit tests         — the 8 CER/escalation/output modules
-  3. smoke run          --start 24 --end 26 (exit 0, no raw_text/ground_truth change)
+  3. smoke run          --start 24 --end 26 --regenerate (exit 0)
   4. benchmark regen    — the final corpus report must reproduce exactly
 
 Exit 0 only if all four pass. Read-only with respect to evidence layers: it never
 writes to raw_text/ or ground_truth/ (the smoke run rewrites page files byte-identically,
 which is itself part of what the invariant asserts).
+
+After the four gates, three advisory/context outputs run and never affect the
+exit code (Phase D):
+  - check_vault()        — genealogy-vault drift report; advisory because the
+                           vault is an external project, and dormant since
+                           2026-10-11 (see docs/genealogy_vault_pin.md)
+  - append_history()     — appends this run's invariant + summary to
+                           logs/invariant_history.jsonl (task 18)
+  - print_reproducibility_note() — a PASS guards shipped bytes, it does NOT
+                           mean the corpus is reproducible cold (task 21)
 
 Usage:  myenv/bin/python verify_all.py [--skip-smoke]
 """
@@ -17,9 +27,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
@@ -187,12 +199,43 @@ TEST_MODULES = [
     # --start 24 --end 26 smoke run. Also pins that _run_page_once still
     # calls layout.detect_columns (voided task 11's "no consumer" premise).
     "tests.test_main_routing",
+    # Phase D task 19: "do not regenerate the corpus" is now a mechanical
+    # guard in main.py (_refuse_to_overwrite_page + --regenerate), not a
+    # prose rule. The guard is pure (path, bool), so these tests exercise
+    # the real write path against a temp output root and pin that the
+    # refusal message names the page and the flag.
+    "tests.test_corpus_regeneration_guard",
+    # Phase D task 22: the escalation hallucination audit is review-only,
+    # and the test that keeps it that way is the byte-identical-input
+    # assertion - without it a future auto-fix could start rewriting the
+    # escalations log it is supposed to only read.
+    "tests.test_escalation_audit",
 ]
-SMOKE_ARGS = ["--start", "24", "--end", "26"]
+SMOKE_ARGS = ["--start", "24", "--end", "26", "--regenerate"]
 DOC = "عمود النسب نسخة 2"
 ALIGNMENT = "data/evaluation_reports/008/alignment.json"
 REPORT_DIR = "data/evaluation_reports/019-escalation-pass"
 EXPECTED = ("CER: 23.7%", "WER: 59.7%", "diacritics accuracy: 83.0%")
+
+# Phase D task 18: the invariant history is COMMITTED EVIDENCE, so it must
+# live at a tracked path. logs/ is tracked in this repo (29 files) and
+# logs/invariant_history.jsonl is NOT matched by any .gitignore pattern
+# (verified with `git check-ignore`); only data/logs/ and
+# logs/fallback_events.jsonl are ignored. It deliberately sits OUTSIDE
+# data/evaluation_reports/ so the post-run `git checkout -- data/` that
+# reverts the benchmark regen never touches it.
+HISTORY_FILE = REPO / "logs" / "invariant_history.jsonl"
+HISTORY_HEADER = (
+    "# evidence-invariant history (verify_all.py, Phase D task 18)\n"
+    "# One JSON object per line, appended on every run - never edited by\n"
+    "# hand and never overwritten. The invariant moves whenever output\n"
+    "# text legitimately changes; this file is the mechanical record of\n"
+    "# every value it took, replacing the hand-written comment trail in\n"
+    "# verify_all.py that had already drifted (see the stale\n"
+    "# 853419275001e5bbd407 / 251-file figures corrected 2026-10-08).\n"
+    "# Fields: ts, head, invariant (computed), expected, files, plus a\n"
+    "# pass/fail summary of the four checks and the smoke skip state.\n"
+)
 
 
 def _run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
@@ -214,6 +257,8 @@ def check_invariant() -> bool:
     gt = REPO / "data" / "ground_truth"
     files = [*out.rglob("*.txt"), *gt.rglob("*.txt")]
     if not files:
+        _last_invariant_vals["hash"] = None
+        _last_invariant_vals["files"] = 0
         print("  no .txt files found — data tree missing")
         return False
     lines = [
@@ -223,10 +268,25 @@ def check_invariant() -> bool:
     # byte-order sort == LC_ALL=C `sort`, which is what the canonical pipeline used
     blob = "".join(sorted(lines, key=lambda s: s.encode())).encode()
     got = hashlib.sha256(blob).hexdigest()[: len(INVARIANT)]
+    # Stash for append_history() so the record quotes the exact value this
+    # check compared, rather than recomputing (and possibly disagreeing).
+    _last_invariant_vals["hash"] = got
+    _last_invariant_vals["files"] = len(files)
     ok = got == INVARIANT
     print(f"  invariant {'OK' if ok else 'CHANGED'}: {got} "
           f"(expected {INVARIANT}, {len(files)} files)")
     return ok
+
+
+# Phase D task 18: what check_invariant() last computed. Module-level (not
+# a return-value change) so the existing four-check wiring stays untouched.
+_last_invariant_vals: dict = {"hash": None, "files": None}
+
+
+def _last_invariant():
+    """The hash + file count check_invariant() actually verified this run,
+    or (None, None) if it never ran."""
+    return _last_invariant_vals["hash"], _last_invariant_vals["files"]
 
 
 def check_tests() -> bool:
@@ -241,7 +301,13 @@ def check_tests() -> bool:
 def check_smoke() -> bool:
     r = _run([PY, "main.py", *SMOKE_ARGS], timeout=1800)
     ok = r.returncode == 0
-    print(f"  smoke --start 24 --end 26: exit {r.returncode} ({'OK' if ok else 'FAIL'})")
+    # SMOKE_ARGS now carries --regenerate (Phase D task 19): pages 24-26
+    # are the one range deliberately regenerated after the venv rebuild,
+    # so overwriting them is intended - but now it is VISIBLE in the
+    # command rather than silent, and the corpus guard would stop any
+    # other range from rewriting shipped evidence.
+    print(f"  smoke --start 24 --end 26 --regenerate: exit {r.returncode} "
+          f"({'OK' if ok else 'FAIL'})")
     if not ok:
         print("    " + (r.stderr or r.stdout).strip().splitlines()[-1][:200])
     return ok
@@ -268,6 +334,124 @@ def check_benchmark() -> bool:
     return ok
 
 
+def check_vault() -> None:
+    """Advisory genealogy-vault drift report (Phase D task 20).
+
+    NOT one of the four hard gates and deliberately not in `results`: the
+    vault is an external, actively-maintained personal Obsidian project,
+    and its moving on is INFORMATION about stale evidence, not a pipeline
+    failure. Drift here means the Phase 1 correction evidence chain points
+    at a newer vault state; it never means this pipeline's output is wrong.
+    Same posture as check_vision_health.py's advisory.
+
+    DORMANT as of 2026-10-11: the vault at DEFAULT_VAULT was reorganized
+    into PARA folders under Obsidian_v_0.2 and the pinned path no longer
+    resolves (two of the eleven files are now 0-byte empties).
+    vault_snapshot_hash() returns None for a directory with no markdown,
+    which this reports as the dormant state rather than failing. That is
+    the correct behavior to preserve: repointing DEFAULT_VAULT is a
+    deliberate user decision recorded in docs/genealogy_vault_pin.md
+    ("Vault reorganized out from under the pin"), and this check must not
+    try to fix it, repoint the pin, or fail the run over it.
+    """
+    sys.path.insert(0, str(REPO / "scripts"))
+    try:
+        from genealogy_crossref import (  # noqa: E402
+            DEFAULT_VAULT, PINNED_VAULT_HASH, vault_snapshot_hash,
+        )
+    finally:
+        if str(REPO / "scripts") in sys.path:
+            sys.path.remove(str(REPO / "scripts"))
+
+    got = vault_snapshot_hash(Path(DEFAULT_VAULT))
+    if got is None:
+        print("  vault drift (advisory, dormant): no markdown found at")
+        print(f"    {DEFAULT_VAULT}")
+        print("    the vault was reorganized 2026-10-11 (see")
+        print("    docs/genealogy_vault_pin.md); the drift check sleeps")
+        print("    until the vault is restored to one directory.")
+        return
+    if got == PINNED_VAULT_HASH:
+        print("  vault drift (advisory): OK - matches the pin in")
+        print("    docs/genealogy_vault_pin.md")
+    else:
+        print("  vault drift (advisory): DRIFT - live vault no longer")
+        print("    matches the pinned snapshot.")
+        print(f"    pinned: {PINNED_VAULT_HASH}")
+        print(f"    actual: {got}")
+        print("    not a failure, but the vault evidence behind the")
+        print("    applied corrections is stale: re-run --review and")
+        print("    re-apply. See docs/genealogy_vault_pin.md.")
+
+
+def _git_head_short() -> str:
+    """Short HEAD sha, or 'unknown' if git is unavailable (detached tarball,
+    broken checkout). The history records provenance, not a hard fact."""
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=REPO, capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    if r.returncode != 0:
+        return "unknown"
+    return r.stdout.strip() or "unknown"
+
+
+def append_history(results: list, invariant: str | None,
+                   file_count: int | None, smoke_skipped: bool) -> None:
+    """Append this run's record to logs/invariant_history.jsonl (Phase D
+    task 18). One JSON object per line so the file is greppable and
+    diffable; the header above is written only on first creation. Never
+    overwrites and never raises into the caller - a history that cannot be
+    written must not turn a passing run into a failing one, exactly like
+    the fallback telemetry in main.py."""
+    record = {
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "head": _git_head_short(),
+        "invariant": invariant,
+        "expected": INVARIANT,
+        "invariant_ok": invariant == INVARIANT,
+        "files": file_count,
+        "smoke_skipped": smoke_skipped,
+        "checks": {name: bool(ok) for name, ok in results},
+        "all_passed": all(ok for _, ok in results) if results else False,
+    }
+    try:
+        HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        write_header = not HISTORY_FILE.exists()
+        with HISTORY_FILE.open("a", encoding="utf-8") as fh:
+            if write_header:
+                fh.write(HISTORY_HEADER)
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+    except OSError as exc:
+        print(f"  history: could not append to {HISTORY_FILE} ({exc}) - "
+              f"the four checks above are unaffected")
+        return
+    state = "OK" if record["invariant_ok"] else "CHANGED"
+    print(f"  history appended ({state}) -> {HISTORY_FILE}")
+
+
+def print_reproducibility_note() -> None:
+    """The global-reproducibility caveat (Phase D task 21). Printed on every
+    run, pass or fail, because a green board is easy to misread as "the
+    corpus is reproducible from a cold re-run." It is not, and that is not
+    a defect to fix - the evidence invariant guards the shipped bytes,
+    which is the right guarantee for a closed corpus. Context, not an
+    error: phrased so a PASS run does not read as a warning."""
+    print("  Reproducibility note: a PASS does NOT mean the corpus is")
+    print("  reproducible from a cold re-run - the smoke check reproduces")
+    print("  the three STORED pages 24-26, not a fresh OCR of the other")
+    print("  110. The venv was rebuilt after the corpus was generated, so")
+    print("  a full cold re-run would rewrite pages with slightly")
+    print("  different text (docs/reproducibility.md). The evidence")
+    print("  invariant guards the shipped bytes, which is the right")
+    print("  guarantee. See docs/reproducibility.md.")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--skip-smoke", action="store_true", help="skip the ~2min page run")
@@ -284,6 +468,21 @@ def main() -> int:
     print()
     for name, ok in results:
         print(f"  [{'PASS' if ok else 'FAIL'}] {name}")
+
+    # Advisory (Phase D task 20): reports after the hard gates so it can
+    # never change the exit code. Currently dormant - see check_vault().
+    print()
+    check_vault()
+
+    # Phase D task 18: append the run's record to the committed history
+    # file. Placed with the reproducibility note below so the run's
+    # closing output reads as one coherent block.
+    invariant, file_count = _last_invariant()
+    append_history(results, invariant, file_count, args.skip_smoke)
+
+    print()
+    print_reproducibility_note()
+
     failed = [n for n, ok in results if not ok]
     if failed:
         print(f"\nFAILED: {', '.join(failed)}")

@@ -105,6 +105,19 @@ class OutputGenerator:
         raw_dir.mkdir(parents=True, exist_ok=True)
         return doc_dir, raw_dir
 
+    def page_path(self, document_name: str, page_num: int) -> Path:
+        """Where save_page() will (or did) write one page's raw_text file.
+
+        The corpus-regeneration guard in main.py asks for this path so the
+        "may I overwrite a stored page?" decision and the write itself
+        share ONE filename format — a second copy of the page_%03d pattern
+        on the caller side would drift the moment either side changed it
+        (REMAINING_WORK_PLAN Phase D, task 19). The path may not exist yet;
+        this method never writes anything and never refuses anything.
+        """
+        _, raw_dir = self._doc_dirs(document_name)
+        return raw_dir / f'page_{page_num:03d}.txt'
+
     def save_page(self, document_name: str, page: Dict[str, Any]) -> Path:
         """
         يُستدعى مرة واحدة لكل صفحة فور ما تخلص معالجتها (مش بعد الكتاب
@@ -147,7 +160,7 @@ class OutputGenerator:
             f"# Binarization Attempt: {page.get('binarization_attempt', 1)}"
         )
 
-        filename = raw_dir / f'page_{page_num:03d}.txt'
+        filename = self.page_path(document_name, page_num)
         filename.write_text(
             f"{chr(10).join(header_lines)}\n\n{full_body}",
             encoding='utf-8',

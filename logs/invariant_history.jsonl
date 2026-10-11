@@ -1,0 +1,14 @@
+# evidence-invariant history (verify_all.py, Phase D task 18)
+# One JSON object per line, appended on every run - never edited by
+# hand and never overwritten. The invariant moves whenever output
+# text legitimately changes; this file is the mechanical record of
+# every value it took, replacing the hand-written comment trail in
+# verify_all.py that had already drifted (see the stale
+# 853419275001e5bbd407 / 251-file figures corrected 2026-10-08).
+# Fields: ts, head, invariant (computed), expected, files, plus a
+# pass/fail summary of the four checks and the smoke skip state.
+{"ts": "2026-10-11T18:47:10+00:00", "head": "6b8e4c0", "invariant": "60309548f2b265e6de11", "expected": "60309548f2b265e6de11", "invariant_ok": true, "files": 318, "smoke_skipped": true, "checks": {"evidence invariant": true, "unit tests": true, "benchmark regen": true}, "all_passed": true}
+{"ts": "2026-10-11T18:48:48+00:00", "head": "6b8e4c0", "invariant": "60309548f2b265e6de11", "expected": "60309548f2b265e6de11", "invariant_ok": true, "files": 318, "smoke_skipped": false, "checks": {"evidence invariant": true, "unit tests": true, "smoke run": true, "benchmark regen": true}, "all_passed": true}
+{"ts": "2026-10-11T18:59:02+00:00", "head": "6b8e4c0", "invariant": "60309548f2b265e6de11", "expected": "60309548f2b265e6de11", "invariant_ok": true, "files": 318, "smoke_skipped": true, "checks": {"evidence invariant": true, "unit tests": true, "benchmark regen": true}, "all_passed": true}
+{"ts": "2026-10-11T20:40:06+00:00", "head": "6b8e4c0", "invariant": "60309548f2b265e6de11", "expected": "60309548f2b265e6de11", "invariant_ok": true, "files": 318, "smoke_skipped": true, "checks": {"evidence invariant": true, "unit tests": true, "benchmark regen": true}, "all_passed": true}
+{"ts": "2026-10-11T20:46:16+00:00", "head": "6b8e4c0", "invariant": "60309548f2b265e6de11", "expected": "60309548f2b265e6de11", "invariant_ok": true, "files": 318, "smoke_skipped": true, "checks": {"evidence invariant": true, "unit tests": true, "benchmark regen": true}, "all_passed": true}

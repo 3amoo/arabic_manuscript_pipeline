@@ -256,30 +256,76 @@ same thing — it repairs a *specific* manuscript's CMap and writes a separate
 
 ---
 
-## Phase D — Small tooling (quality-of-life, no accuracy effect)
+## Phase D — Small tooling (quality-of-life, no accuracy effect) — **DONE 2026-10-11 (tasks 18–22)**
 
-18. **Generate the evidence-invariant history rather than hand-writing it.**
-    Have `verify_all.py` append each run's hash + date to a file instead of a
-    human editing the comment trail. The invariant moves on every correction;
-    the hand-written record is the only account of why, and it has already
-    drifted (see the stale `853419275001e5bbd407` / 251-file figures corrected
-    2026-10-08 to `60309548f2b265e6de11` / 318).
-19. **Make the "do not regenerate the corpus" constraint mechanical** — a
-    guard or assertion rather than a prose rule, since the stored corpus is
-    the corpus and a cold re-run does not reproduce it
-    (`docs/reproducibility.md`).
-20. **Add the vault-drift check to a recurring verification step.** The pin
-    (`docs/genealogy_vault_pin.md`, hash `a3ee7965…`) is verified manually
-    today; the vault already drifted once. Wire the hash check into
-    `verify_all.py` or a standalone script so drift is caught, not discovered.
-21. **Add a global-reproducibility note to `verify_all.py`'s output** so a
-    passing run does not imply the corpus is reproducible from cold — the
-    smoke check reproduces the *stored* pages, not a fresh OCR.
-22. **Add the escalation auto-detector.** Flag accepted escalations whose text
-    has high lexical probability but low character-level agreement with the
-    OCR it replaced — a large edit distance on a short crop is the
-    hallucination fingerprint. **Review-only, never auto-reject.** This closes
-    the one documented open vector with no automated check. Effort: medium.
+18. ~~**Generate the evidence-invariant history rather than hand-writing it.**~~
+    — **done (2026-10-11).** `verify_all.py` appends one JSON line per run to
+    `logs/invariant_history.jsonl` (timestamp, git HEAD, computed vs expected
+    invariant, file count, per-check booleans, `all_passed`). The path is
+    outside `data/` so the post-run revert never touches it, and is
+    git-checkable (not ignored). The record quotes the exact hash that was
+    compared, not a recomputation. The stale-figure drift this task was written
+    for (`853419275001e5bbd407` / 251 files hand-maintained) can no longer recur:
+    the history is now written by the same code that computes the invariant.
+19. ~~**Make the "do not regenerate the corpus" constraint mechanical**~~ —
+    **done (2026-10-11).** `main.py` now refuses to overwrite an existing
+    `raw_text/page_NNN.txt` and exits 1 naming the page and the fix; the
+    operator must pass `--regenerate` to overwrite deliberately. The guard sits
+    in `main.py`'s page loop (before OCR) rather than in
+    `output_generator.save_page()`, because `save_page()`'s overwrite-on-overlap
+    is a deliberate, *tested* crash-recovery contract
+    (`test_current_run_overrides_disk`) that the guard must not break. A fresh
+    page still writes normally, so the fresh-run path is unaffected. The smoke
+    range is the one explicit exception — `SMOKE_ARGS` carries `--regenerate`,
+    making the regeneration visible in the command instead of silent.
+    `docs/reproducibility.md` consequence #1 now states the constraint is
+    mechanical; #2 records the smoke exception. Covered by
+    `tests/test_corpus_regeneration_guard.py` (8 tests).
+20. ~~**Add the vault-drift check to a recurring verification step.**~~ —
+    **done (2026-10-11)** as `check_vault()` in `verify_all.py`, wired *after*
+    the four hard gates so it can never affect the exit code — the vault is an
+    external personal project and drift is information, not a pipeline failure.
+    It reuses `scripts/genealogy_crossref.py`'s `vault_snapshot_hash` and
+    `PINNED_VAULT_HASH` unchanged. **The check is currently dormant by design**:
+    the vault was reorganized 2026-10-11 and its path no longer resolves, so it
+    prints the dormant state and points at `docs/genealogy_vault_pin.md` rather
+    than failing or trying to repoint the pin (that is a user decision recorded
+    in the pin doc).
+21. ~~**Add a global-reproducibility note to `verify_all.py`'s output**~~ —
+    **done (2026-10-11).** `print_reproducibility_note()` runs on every run
+    regardless of pass/fail and makes explicit that a PASS does not mean the
+    corpus is reproducible from cold — the smoke check reproduces the three
+    *stored* pages, not a fresh OCR of the other 110. Printed as one closing
+    block with the history append.
+22. ~~**Add the escalation auto-detector.**~~ — **done (2026-10-11)**:
+    `scripts/escalation_audit.py` + `tests/test_escalation_audit.py` (26 tests,
+    wired into `TEST_MODULES`). Scores each accepted escalation as a normalized
+    character error rate between the OCR text and the escalated text, flags a
+    row when the edit distance exceeds the entire OCR length **and** the
+    replacement looks like fluent Arabic — the documented hallucination
+    fingerprint (a long fluent verse returned for a short/near-blank crop).
+    **Review-only: it writes a report and never modifies `escalations.jsonl`**;
+    a byte-identical-input test pins that property, which is what makes it safe
+    to run on evidence.
+
+    **Two findings worth keeping.** (1) **Diacritics must be stripped** for this
+    signal: the vision backend vocalizes and PaddleOCR does not, so keeping
+    tashkeel charges a style difference as content disagreement — the *correct*
+    page-38 escalation scores 0.78 on base letters but **1.12 with diacritics
+    kept**, i.e. it would false-positive past the threshold. (2) **The lexical
+    fluency conjunct is not load-bearing on real data**: `main.py`'s acceptance
+    gate already requires reasonable Arabic, so every accepted row passes it and
+    the edit-distance ratio alone determines every verdict. It is kept because
+    the plan defines the fingerprint as the conjunction, but it could be deleted
+    with no behavior change.
+
+    **Result against the real corpus: 0 flagged rows.** The two shipped accepted
+    escalations (p43, p38) score **0.30** and **0.78** — both unflagged, i.e.
+    the tool independently confirms both are genuine corrections rather than
+    hallucinations. Every other row is `source: no_backend_responded` with
+    `escalated_text: null`, so there is no hallucination surface today. The
+    detector closes the documented open vector for *future* runs, and its
+    verdict on the existing evidence is a clean bill of health.
 
 ---
 
@@ -355,13 +401,17 @@ most durable output. **That is the state the project is now in (2026-10-08).**
 | A | Adjacent-band merge pass | **No — measured 0.0000pp and closed 2026-10-08** | 1–2 closed; 3 open |
 | B | Test-coverage debt | No — protects the measurement | 4–11 **done 2026-10-11** |
 | C | Doc/code reconciliation | No — fixes active misinformation | 12–17 **done 2026-10-08** |
-| D | Small tooling | No — quality of life | 18–22 |
+| D | Small tooling | No — quality of life | 18–22 **done 2026-10-11** |
 | E | Blocked / closed by decision | No — needs external input | 5 items |
 | F | Guardrails | No — measured stop-conditions | 10 items |
 
 **22 actionable items.** Of those, **0** can move an accuracy number
 (Phase A measured neutral and closed 2026-10-08 — the last accuracy
-lever in the project is now exhausted). **Phase B is done 2026-10-11**
-(7 modules, 111 tests, gate 393 → 414) and **Phase C is done 2026-10-08**,
-leaving only Phase D (5 tooling items) as open mechanical work. The program
-that this project was built around is complete; what is left is consolidation.
+lever in the project is now exhausted). **Phases B, C, and D are all done**
+(B: 7 modules / 111 tests on 2026-10-11; C: doc reconciliation 2026-10-08;
+D: 5 tooling items 2026-10-11). The only remaining open item is **Phase A task
+3** (scale-relative `RULE_MAX_HEIGHT_PX`), which needs the 162-band
+false-positive regression re-run to ship safely. Everything else is Phase E
+(blocked on external input) or Phase F (standing guardrails requiring no
+action). The program that this project was built around is complete; the
+consolidation is now complete too.
