@@ -105,17 +105,28 @@ layer-based rule detector was measured at **170 false positives** and rejected.
 
 ## Roadmap
 
-1. **Adjacent-band merge pass before OCR** — the binarization experiment's #1
-   recommendation. Merge vertically adjacent bands with a large height ratio so a
-   bold heading is OCR'd as one line instead of fragments. Effort: medium.
-   Rationale: this is the measured root cause of the largest, best-understood
-   class of manual-review-queue rows (the 17 `full_width` low-confidence rows),
-   and it is the fix OCR is demonstrably ready for (the same crops read the
-   *neighbouring* verse correctly when the region is right).
-2. **Re-run the escalation/queue audit after the merge pass** — the 13 sub-4-char
-   blind spots and the 118-row queue should both shrink; measure rather than
-   assume. Effort: small (instrumentation already exists in
-   `scripts/fallback_report.py --review-queue`).
+1. ~~**Adjacent-band merge pass before OCR**~~ — **measured exactly
+   net-neutral and closed without shipping code (2026-10-08).** The
+   recommendation was implemented (adjacent + large height ratio, with
+   rule-strip and verse-row guards so it cannot touch verse text) and
+   A/B'd in memory over 51 pages against a control arm that reproduced
+   the shipped corpus byte-for-byte. The rule fired on **one** band pair
+   in 51 pages (page 32: 143px + 53px, gap 15px); page 32's line went
+   `اسن` → `سب الني` (both wrong — the heading is an interstitial the GT
+   does not record, so CER cannot see it). Corpus CER/WER/diacritics and
+   page-32 CER (0.3410493827160494) were **identical to 16 decimals**;
+   page confidence 75.3% → 75.5%. The other documented fragment classes
+   are unreachable by this rule by construction: page 21's heading is
+   four *same-height* bands (70–78px) with 86–95px gaps (ratio ~1.1, gap
+   ≫ height), page 6's shard is isolated between two full lines with 80px
+   gaps, page 111's rows are dot-leader list items. Constant sweeps
+   (ratio 1.5–2.5) fire on at most 7 pairs, and the only extra ones are
+   two-real-line merges. `main.py` / `segment_text_rows.py` were reverted
+   to the pre-merge state. Full record: `plans/REMAINING_WORK_PLAN.md`
+   Phase A. **Do not reopen without a genuinely new signal.**
+2. ~~**Re-run the escalation/queue audit after the merge pass**~~ — **moot
+   (2026-10-08):** the merge changed one line of corpus text, so the queue
+   could not have shrunk; the audit was not worth a corpus regeneration.
 3. **Make `RULE_MAX_HEIGHT_PX` scale-relative** (a fraction of the page or of the
    median band height) instead of a raised absolute pixel ceiling, so a
    differently-printed manuscript does not need re-tuning. Effort: small, but it

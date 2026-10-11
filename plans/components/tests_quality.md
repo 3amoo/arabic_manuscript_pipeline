@@ -74,10 +74,15 @@ runs without quota or GPU.
 
 ## Open issues / known problems
 
-- **The pinned count is stale.** `docs/AGENTS.md` pins 368 OK / 2 skipped while the
-  modules now declare 400 methods. `check_tests()` only checks `returncode == 0` and
-  `"OK"` in the tail, so the count is documentation, not enforcement — and it is now
-  wrong documentation.
+- **The pinned count is stale.** `docs/AGENTS.md` pins 393 OK / 2 skipped
+  (re-pinned 2026-10-08). `check_tests()` only checks `returncode == 0` and
+  `"OK"` in the tail, so the count is documentation, not enforcement. The
+  number is what `python -m unittest` collects over the 22 wired modules —
+  `pytest --collect-only` reports 427 for the same modules, but 34 of those
+  are module-level `def test_*` functions (all of
+  `tests/test_benchmark_cer_wer.py`) that unittest never collects, so the
+  pytest figure is not what the gate runs. The count still ages by one per
+  addition — see REMAINING_WORK_PLAN Phase B task 11.
 - **Whole subsystems have no unit tests at all** (verified by direct-import grep):
   `tounicode_repair.py`, `ocr_cache.py`, `surya_line_detector.py`,
   `morphological_verifier.py`, `flag_suspicious_words.py`,
@@ -102,7 +107,7 @@ runs without quota or GPU.
    invoke them as a fifth check). Effort: small. Rationale: they are exactly the
    "passing but unwired" class Phase 0 fixed; a silent drift in the CER measurement
    machine would not currently trip the gate.
-2. ~~**Re-pin the test count** in `docs/AGENTS.md`~~ — **done (2026-10-08, `REMAINING_WORK_PLAN.md` Phase C task 17).** AGENTS §11 now reads 425 OK / 22 wired modules, with the stale 368/20 figure marked as such. Note the pin still ages by one every time a test is added — Phase B task 11 of the remaining-work plan says to re-pin after each addition, or change the pin to a `>N` form so it stops aging.
+2. ~~**Re-pin the test count** in `docs/AGENTS.md`~~ — **done (2026-10-08, `REMAINING_WORK_PLAN.md` Phase C task 17), then corrected again the same day.** AGENTS §11 now reads 393 OK / 22 wired modules — the count `python -m unittest` actually collects, which is what `verify_all.py` runs. The intermediate 425 figure was the `pytest --collect-only` count, which inflates by 34 module-level functions unittest never collects; the earlier 368/20 and 400 figures were older still. Note the pin still ages by one every time a test is added — Phase B task 11 of the remaining-work plan says to re-pin after each addition, or change the pin to a `>N` form so it stops aging.
 3. **Add `tests/test_tounicode_repair.py`** — the guarded adjacent-swap's refusal to
    guess (vocabulary miss → word unchanged) and `learn_corrections`'s
    single-anagram-only rule. Effort: small. Rationale: the module's entire safety

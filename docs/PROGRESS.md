@@ -258,7 +258,7 @@ The benchmark scores the `vault_corrected_text/` layer since the Task 6 promotio
 | Diacritics accuracy | **83.0%** (raw layer: 83.1%) | same |
 | Scored pages | **45** of 113 (26 clean / 17 low-confidence / 2 recovered) | `docs/CLAUDE.md`, spec 008 |
 | Ground truth | **620 numbered verses**, covering pages 23-67 only | `data/ground_truth/عمود النسب/عمود_النسب.clean.md` |
-| Evidence invariant | `853419275001e5bbd407` over 251 `.txt` files | `verify_all.py`; `docs/output_patching.md` |
+| Evidence invariant | `60309548f2b265e6de11` over 318 `.txt` files | `verify_all.py`; `docs/output_patching.md` |
 | Worst / best pages | p65 43.6% / p60 53.3% / p28 51.3% vs p55 9.0% / p24 10.6% | `data/evaluation_reports/019-escalation-pass/quality_report.txt` |
 
 Earlier references, preserved: spec 006 CER 25.0% / 43 pages (`data/evaluation_reports/006/`);
@@ -284,7 +284,7 @@ positions where GT and OCR agree on the base letter):
   sub-4-character escalations fell 12 → 6 and the escalation count 164 → 118
   (`docs/escalation_threshold_audit.md`).
 - **Manual review queue: 118 unverified lines** (`logs/manual_review_queue.md`), each carrying
-  an inline marker in the page files (136 markers across the layer,
+  an inline marker in the page files (118 markers across the layer — 61 pages,
   `docs/output_patching.md`). All 118 now have rendered source crops.
 - **117 suspected-hallucination verses** flagged for diagnosis only, not excluded from CER
   (`docs/CLAUDE.md`).
@@ -316,10 +316,13 @@ positions where GT and OCR agree on the base letter):
 
 ### Tests
 
-`verify_all.py` runs 20 wired unittest modules. The pinned expectation in `docs/AGENTS.md` is
-**368 OK with 2 skipped** (re-pinned 2026-09-22); those modules now declare 400 test methods
-after the Phase 4 additions (a `line: 0` validation bug fixed in `304c13d` came with a
-regression test).
+`verify_all.py` runs 22 wired unittest modules. The pinned expectation in `docs/AGENTS.md` is
+**393 OK with 2 skipped** (re-pinned 2026-10-08). That number is what `python -m unittest`
+collects — i.e. what `verify_all.py` actually executes. `pytest --collect-only` reports 427
+over the same modules, but 34 of those are module-level `def test_*` functions (notably all
+of `tests/test_benchmark_cer_wer.py`) that unittest never collects, so the pytest figure
+is not what the gate runs. The count ages by one per test addition — the pin must be
+updated by hand or moved to a `> N` form (REMAINING_WORK_PLAN Phase B task 11).
 
 ---
 
@@ -484,7 +487,7 @@ stays at 84 verses.
   gate.
 - The proposed `review_corrected_text/` layer does not exist and deliberately so: at 9
   applicable patches it was not worth building (`docs/output_patching.md`). The three output
-  layers and their 136 escalation markers are untouched evidence.
+  layers and their 118 escalation markers are untouched evidence.
 - The vision escalation path is proven to work (spec 018) but is **quota-starved**: all
   backends are dead on the free tier (Gemini ~20 calls/day, OpenRouter HTTP 402, Groq HTTP
   404, Sovereign has no credentials). No paid keys will be added.

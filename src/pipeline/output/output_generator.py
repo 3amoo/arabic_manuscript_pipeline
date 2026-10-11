@@ -23,6 +23,20 @@ misreading, and that risk is invisible once its text is merged into
 full_manuscript.txt indistinguishably from every other line). This is
 purely a human-review aid; nothing here feeds back into the manuscript
 text itself.
+
+LAYER CONTRACT (AGENTS.md §6 / §7): raw_text/page_NNN.txt is the
+project's EVIDENCE layer, and save_page() is its only writer - one call
+per page, once that page is finished (the <50%-confidence reprocess is
+resolved BEFORE the single save, which is why the header records
+`# Binarization Attempt`). This module NEVER overwrites an already-saved
+page with a corrected or improved reading: every downstream stage that
+produces better text writes a SEPARATE layer - corrected_text/ (LLM
+review, review_manuscript.py), repaired_text/ (ToUnicode cross-check,
+tounicode_repair.py), vote_corrected_text/ (name vote,
+scripts/vote_correct_names.py), vault_corrected_text/ (vault-confirmed
+corrections). raw_text/ stays the auditable machine-readable record of
+what the OCR actually read. full_manuscript.txt is a derived view and is
+rebuilt from raw_text/ on disk, so it can always be reconstructed.
 """
 
 import json

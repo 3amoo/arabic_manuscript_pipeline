@@ -67,8 +67,14 @@ DEFAULT_VAULT = "/home/omar/Desktop/Obsidian/علم شرعي/علم الأنسا
 # behind the applied Phase 1 corrections goes stale — a mismatch here is
 # not a pipeline failure, but it is the signal to re-run the review.
 VAULT_PIN_FILE = "docs/genealogy_vault_pin.md"
+# The composition-corrected hash (2026-10-08): sha256sum *.md | sort |
+# sha256sum with the sort over the LINES. The old value here
+# (7e92a8e6...) was produced by sorting filenames instead, which is a
+# different digest from the same content — the two had disagreed since
+# 2026-10-02 and the difference was misread as vault drift. The vault
+# never moved; see docs/genealogy_vault_pin.md "Drift audit corrected".
 PINNED_VAULT_HASH = (
-    "7e92a8e6747f6bf6eb78b5aebd522834f087b239b3b4b134f7a3e131ee665bb3"
+    "a3ee796507873d4546af0e6d7bec0505bdbb982d36a122053c870dec01660a72"
 )
 
 # Edit distance for near-misses: 1 = a dotting slip (ن/ة or ب/ي
@@ -366,17 +372,28 @@ def write_review_queue(results: List[Dict[str, object]], path: Path) -> int:
 
 def vault_snapshot_hash(vault: Path) -> Optional[str]:
     """Same composition as verify_all.py's evidence invariant:
-    sha256sum *.md | sort | sha256sum. Keeping the construction identical
-    means the pin and the check cannot drift apart by accident."""
+    sha256sum *.md | sort | sha256sum.
+
+    The sort is over the *lines*, not the filenames - the two are NOT
+    interchangeable. Sorting filenames and then hashing sequentially
+    gives a different digest from sorting the "<hash>  <name>" lines,
+    because `sort` orders by the hash first. This function must stay
+    byte-identical to the recipe `docs/genealogy_vault_pin.md` tells a
+    human to run, or the pin and the check silently disagree - which is
+    exactly the defect found 2026-10-08, when the two compositions had
+    been producing different hashes for a week and the difference was
+    misread as vault drift."""
     import hashlib
     files = sorted(vault.glob("*.md"))
     if not files:
         return None
-    h = hashlib.sha256()
-    for p in files:
-        h.update(hashlib.sha256(p.read_bytes()).hexdigest().encode())
-        h.update(b"  " + p.name.encode() + b"\n")
-    return h.hexdigest()
+    lines = [
+        f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n"
+        for p in files
+    ]
+    # byte-order sort == LC_ALL=C `sort`, matching verify_all.check_invariant
+    blob = "".join(sorted(lines, key=lambda s: s.encode())).encode()
+    return hashlib.sha256(blob).hexdigest()
 
 
 def check_vault_drift(vault: Path) -> None:

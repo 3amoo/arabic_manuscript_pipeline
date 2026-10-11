@@ -12,7 +12,7 @@ never touches `data/output/`:
 - `full_manuscript.txt` — the assembled reading copy.
 
 All three page-file layers still carry `# ⟦⚠ غير محقق: فشل التصعيد البصري⟧`
-on 136 of them. Nothing was patched, and no `# ⟦⚠ غير محقق⟧` marker was
+on 61 pages holding 118 of them. Nothing was patched, and no `# ⟦⚠ غير محقق⟧` marker was
 ever removed by review. That is the correct state to be in, for the
 reasons below.
 
@@ -22,7 +22,7 @@ The three text layers are **evidence**, not a working document. Every
 downstream measurement is a comparison *against* them:
 
 - `verify_all.py` hashes 251 files under `data/output` and pins them to
-  invariant `853419275001e5bbd407`. Any edit to a page file breaks the
+  invariant `60309548f2b265e6de11`. Any edit to a page file breaks the
   closed-pipeline guarantee that the published numbers are reproducible.
 - `scripts/measure_der.py` computes CER/WER from `raw_text` versus the
   gold layer. If review readings are folded back into `raw_text`, the
@@ -76,7 +76,7 @@ data/output/عمود النسب نسخة 2/
   reads the gold layer, not the text layer; patching a page file does not
   make a verse gold.
 - It does not remove markers from pages with no full-line coverage. The
-  136 markers shrink only as fast as real readings arrive.
+  118 markers shrink only as fast as real readings arrive.
 
 ## Current scale
 

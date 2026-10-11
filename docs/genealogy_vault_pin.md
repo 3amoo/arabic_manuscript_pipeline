@@ -15,15 +15,44 @@ An unpinned external dependency this central is a real risk: if the
 vault's files change or move, every Phase 1 correction's evidence chain
 points at nothing. This file closes that risk.
 
+## Vault reorganized out from under the pin (2026-10-11)
+
+While re-verifying the pin, the vault directory
+`/home/omar/Desktop/Obsidian/علم شرعي/علم الأنساب` **disappeared mid-session** —
+present and hashable at the start of the work, gone by the end, with no
+action from this project. The 11 files reappear split across a PARA
+restructure in `Obsidian_v_0.2`:
+
+- `1️⃣ Projects/02 علم الأنساب/02 شرح …/` — 4 files
+  (`00 الشاتات كلها.md` and `03 الأبيات من 201 حتى 300.md` are now
+  **0-byte empties**; the other two keep their content),
+- `3️⃣ Resources/02 العلم الشرعي/03 علم الأنساب/01 … (يوتيوب)/` — 6 files,
+  all non-empty.
+
+**What this means for the pin:** the hash corrections above were computed
+against the live 11-file vault while it still existed at the pinned path,
+so they are verified. But `check_vault_drift()` will now report "no
+markdown found" because `DEFAULT_VAULT` no longer resolves. The pin has
+become a **historical snapshot** of a vault state that no longer exists on
+disk.
+
+**What is deliberately NOT done:** repointing `DEFAULT_VAULT` at the PARA
+paths. Two of the files are empty now, so the vault's *content* genuinely
+changed — the pin would not match even with the composition fixed, and
+silently re-pinning to a different file set would recreate exactly the
+false-drift confusion this fix removed. This is a decision for the user:
+either restore the vault to one directory, or accept that the Phase 1
+evidence chain is now archival.
+
 ## The pin
 
 | field | value |
 |---|---|
-| path | `/home/omar/Desktop/Obsidian/علم شرعي/علم الأنساب` (the `DEFAULT_VAULT` constant in `scripts/genealogy_crossref.py`) |
-| files | 11 markdown, 172 KB, no subdirectories |
+| path | `/home/omar/Desktop/Obsidian/علم شرعي/علم الأنساب` (the `DEFAULT_VAULT` constant in `scripts/genealogy_crossref.py`) — **no longer resolves; see "Vault reorganized" above** |
+| files | 11 markdown, 148 KB (`148161` bytes), no subdirectories |
 | snapshot hash | `a3ee796507873d4546af0e6d7bec0505bdbb982d36a122053c870dec01660a72` |
 | pinned | 2026-09-22 |
-| re-verified | 2026-10-02 — vault drifted from the pinned hash (`7e92a8e6...`), same 11 files, 168 -> 172 KB. See "Drift audit (2026-10-02)" below |
+| re-verified | 2026-10-11 — composition error corrected (see "Drift audit corrected"); the pinned 11-file state no longer exists on disk (see "Vault reorganized out from under the pin") |
 
 The snapshot hash is `sha256sum *.md | sort | sha256sum` — the same
 composition `verify_all.py` uses for the evidence invariant, so the
@@ -49,6 +78,11 @@ Compare against the hash above.
   should be re-run: `scripts/vault_vote_correct_names.py --review` and
   re-apply. The GT gate (Task 4) will still hard-block anything the
   ground truth contradicts, so the verified tier cannot silently rot.
+- **Path does not exist** — the current state (2026-10-11): the vault was
+  reorganized into `Obsidian_v_0.2` PARA folders. See "Vault reorganized
+  out from under the pin". `check_vault_drift()` prints "no markdown
+  found" and returns; this is not a failure either, but it means the drift
+  check is **dormant** until the vault is restored to one directory.
 
 ## Why a pointer and not a copy
 
@@ -74,7 +108,40 @@ e7a6cf002f90c4b887bd4563d7e0920654f17cf20c9c3c46ab42867703d14f00  02  نسخة �
 eee485c30898ebb5b14c0b4e4ed29e3ad87acdc482d77884f984cae449ab416e  00 الشاتات كلها.md
 ```
 
-## Drift audit (2026-10-02)
+## Drift audit corrected (2026-10-08)
+
+The "Drift audit (2026-10-02)" below was **wrong in its premise** — the
+vault never drifted. The two hashes differ because the pin and the check
+were using *two different hash compositions*, not because the vault's
+content changed:
+
+- `docs/genealogy_vault_pin.md` and `verify_all.py` both describe
+  `sha256sum *.md | sort | sha256sum`, where `sort` orders the
+  **lines** (`<hash>  <filename>`) — hash-major.
+- `genealogy_crossref.vault_snapshot_hash()` was sorting the **filenames**
+  and feeding the digests into a running SHA-256 sequentially — a
+  different digest from identical content.
+
+The two compositions yield `a3ee7965…` (line-sorted) and `7e92a8e6…`
+(filename-sorted). The 2026-02 comparison treated that difference as
+content drift and recorded a "168 → 172 KB" size change that does not
+correspond to any real edit: **the vault's 11 per-file hashes are
+byte-identical to the 2026-09-22 snapshot above**, verified 2026-10-08
+by recomputing both compositions directly.
+
+**What was actually true** in the audit below: the 8 corrected forms are
+all still attested, and the 3 single-attested ones (`هشام`, `عثمان`,
+`نوفل`) rest on a human override with no GT support. That analysis stands
+and is unaffected by the composition error.
+
+**Fix applied:** `vault_snapshot_hash()` now sorts the lines, matching
+its own docstring and the recipe a human is told to run;
+`PINNED_VAULT_HASH` is now the composition-correct `a3ee7965…`. A
+composition divergence between the pin and the check can no longer be
+misread as drift, because the two are now genuinely the same
+construction.
+
+## Drift audit (2026-10-02) — superseded by the correction above
 
 The vault **has** moved since the original pin: the hash changed from
 `7e92a8e6...` to `a3ee7965...`, with the same 11 files growing 168 -> 172 KB

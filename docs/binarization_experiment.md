@@ -63,11 +63,36 @@ the two rows that currently read well.
 
 What would actually recover these rows, in order of expected payoff:
 
-1. **Merge adjacent bands before OCR.** The heading rows that read a
+1. ~~**Merge adjacent bands before OCR.**~~ — **BUILT, MEASURED EXACTLY
+   NET-NEUTRAL, AND REVERTED (2026-10-08).** The heading rows that read a
    neighbouring verse are proof that OCR is capable of the line when the
    region is right; the fix is to give it the region. A merge pass over
    vertically adjacent bands with a large height ratio would repair more
    of these rows than any threshold sweep.
+
+   It was implemented with the rule this doc recommends (adjacent bands,
+   large height ratio) plus two guards so it cannot corrupt verse text
+   (never merges a band the rule detector would drop, never merges a
+   verse row when a gutter is known) and A/B-measured in memory over 51
+   pages against a control arm that reproduced the shipped corpus
+   byte-for-byte. Results: the rule fired on **1 band pair in 51 pages**
+   (page 32: a 143px band + a 53px shard, 15px apart); that line changed
+   `اسن` → `سب الني`, both wrong, and the CER did not move past the 16th
+   decimal (corpus 23.7% / WER 59.8% / diacritics 83.1% identical; page 32
+   CER 0.3410493827160494 identical — the heading is an interstitial the
+   GT does not record between verses 127 and 128, so it is scored as a
+   hallucinated verse either way).
+
+   **Why it could not reach the rest of these rows:** they are not
+   height-ratio-adjacent shards. This page's own p021 set is four
+   *same-height* fragments (70–78px) separated by 86–95px gaps — ratio
+   ~1.1 with a gap larger than a line height, so "adjacent bands with a
+   large height ratio" cannot fire without merging real lines. p006's
+   79px shard sits isolated between two full 126/128px lines with 80px
+   gaps. Recovering them needs a different rule (merge a *run* of
+   sub-median bands into one multi-line crop) that was never measured and
+   is not this recommendation. Full record:
+   `plans/REMAINING_WORK_PLAN.md` Phase A.
 2. **Keep them in the manual queue.** There are only 17, and the crops
    exist. A human reading the crop resolves each in seconds, which is
    what the queue is for; the pairing manifest now records which of them

@@ -101,7 +101,7 @@ model pattern-completing off the prompt.
 The project is a **package**, NOT flat. `main.py` imports `src.pipeline.*`:
 
 ```
-src/pipeline/ingestion/        input_handler, pdf_text_extractor
+src/pipeline/ingestion/        input_handler, tounicode_repair (text-layer path RETIRED, AGENTS §4.4)
 src/pipeline/preprocessing/    preprocessing, page_layout_detector, segment_text_rows
 src/pipeline/ocr/              ocr_engine, vision_fallback, surya_line_detector, ...
 src/pipeline/output/           output_generator, review_manuscript

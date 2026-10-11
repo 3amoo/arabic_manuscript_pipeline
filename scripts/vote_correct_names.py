@@ -34,6 +34,23 @@ WHAT IT DOES (and deliberately does not):
     same transparency principle as the UNRESOLVED_MARKER work, just for
     a different kind of uncertainty.
 
+STRUCTURAL BLIND SPOT - read this before trusting the output. Clustering
+is by SKELETON (diacritics stripped, ى -> ي, tatweel removed), so this
+script can only see disagreements that SHARE a skeleton: tashkeel
+variants, ى/ي, and tatweel. PaddleOCR's dominant failure mode on this
+corpus is a BASE-LETTER slip (a dotting error: ي where ش belongs, م
+where و belongs), and two different base letters are two DIFFERENT
+skeletons - they never land in one cluster, so no vote can ever fire.
+The blind spot is by construction, not a tuning gap: raising thresholds
+or widening edit distance cannot fix it, because the two readings never
+meet. That is why the genealogy vault cross-reference
+(scripts/genealogy_crossref.py -> scripts/vault_vote_correct_names.py)
+exists as a SECOND, distinct-provenance signal: the vault is an
+independently curated transcription of the same poem, so it can prove a
+correction internal voting is structurally incapable of even noticing.
+The two mechanisms are complementary, not redundant - do not collapse
+them into one.
+
 MODES:
 
   --dry-run (default)  report + write logs/vote_corrections.jsonl, touch

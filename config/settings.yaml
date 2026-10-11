@@ -63,6 +63,12 @@ ocr:
   # fixed 8-line probe, spec 011 research). Changing this key starts a
   # DISJOINT OCR cache set automatically (ocr_cache.py keys on model name).
   text_recognition_model_name: arabic_PP-OCRv5_mobile_rec
+  # INACTIVE on the main path: only OCREngine.extract() (the whole-page
+  # path) reads this to drop low-confidence lines, and main.py never
+  # calls that - it always goes through extract_segments_batch() on
+  # pre-cropped lines, where per-line confidence is handled in main.py's
+  # own escalation policy (AGENTS §4.10). Changing it has NO effect on a
+  # normal main.py run.
   min_confidence: 0.4
   # Only affects OCREngine.extract() (whole-page path), which the actual
   # pipeline in main.py does not call - main.py always goes through
@@ -310,6 +316,14 @@ text_correction:
 # are installed; `db_name` below is the packaging name inside camel_tools
 # (the DB pip package is 'morphology-db-msa-r13', the DB name is
 # 'calima-msa-r13').
+# This block is deliberately COMMENTED: flag_suspicious_words.py reads it
+# with settings.get("token_verification", {}), so when it is absent the
+# verifier runs on its code defaults - db_name "calima-msa-r13",
+# max_candidates 5 - which are exactly the values commented out below.
+# Uncommenting changes nothing unless you also edit the values; the block
+# is kept as a discoverable knob, not an enabled one. Every role of this
+# verifier was measured and rejected (AGENTS §12, specs 015/016); it stays
+# a review-only flagger, never a gate or a fixer.
 # token_verification:
 #   db_name: "calima-msa-r13"
 #   max_candidates: 5

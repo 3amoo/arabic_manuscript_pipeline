@@ -102,9 +102,9 @@ real lines — it hallucinates plausible Arabic instead of reading
   *unique* fluent misreading on a bad crop passes every gate and is indistinguishable
   from a real reading. These land in `escalations.jsonl` for review but are not
   auto-detected (AGENTS.md §12).
-- **The 118-row manual review queue is the human backstop for the above** — 136
+- **The 118-row manual review queue is the human backstop for the above** — 118
   inline `UNRESOLVED_MARKER` (`output_generator.py:54`) markers across the layer
-  (`docs/output_patching.md`), all from lines that escalated and got no answer.
+  (61 pages; `docs/output_patching.md`), all from lines that escalated and got no answer.
 - **Escalation-rate telemetry was contaminated by decorative rule lines**; the
   post-fix count (118) is the trusted one.
 - **`escalations.jsonl` rotation only keeps one generation** (`.prev.jsonl`); a

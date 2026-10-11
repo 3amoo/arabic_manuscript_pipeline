@@ -4,7 +4,7 @@ Local-first pipeline for extracting text from scanned Arabic manuscripts (poetry
 
 ## How it actually works
 
-1. **Render** — each PDF page is rendered to an image (`src/pipeline/ingestion/input_handler.py`). Every page is tried as text-first and only falls to OCR if its text layer fails the 85% usable-character test (`docs/AGENTS.md` §4.4); a damaged `ToUnicode` map is repaired in place by `tounicode_repair.py`.
+1. **Render** — each PDF page is rendered to an image (`src/pipeline/ingestion/input_handler.py`) and **always goes through OCR**. The embedded text-layer shortcut (an 85% usable-character test, per-page) was retired: a broken `ToUnicode` CMap emits well-formed but position-permuted Arabic (every corrupted word is an exact anagram of the true one) that passes any codepoint/ratio check (`docs/AGENTS.md` §4.4). `tounicode_repair.py` repairs that corruption only as a separate cross-check layer (`repaired_text/`), never as a replacement for OCR.
 2. **Preprocess** — `preprocessing.py` runs three classical OpenCV steps, in this fixed order, before anything else touches the image:
    - `deskew` — straightens the page so text lines are horizontal (required by every detector below).
    - `clahe` — local contrast enhancement, for uneven scan lighting.
@@ -84,8 +84,8 @@ main.py                            # entry point / orchestration, poetry vs pros
 config/settings.yaml               # all runtime knobs
 config/prompts.yaml                # vision + correction prompts
 src/pipeline/
-    ingestion/input_handler.py      # PDF/image loading, per-page text-vs-image routing
-    ingestion/tounicode_repair.py   # repairs damaged ToUnicode maps in text-layer pages
+    ingestion/input_handler.py      # PDF/image loading; every page renders to image → OCR
+    ingestion/tounicode_repair.py   # ToUnicode cross-check layer for one manuscript (never an OCR replacement)
     preprocessing/preprocessing.py  # deskew, CLAHE, denoise
     preprocessing/page_layout_detector.py  # content region + poetry/prose boundary
     preprocessing/segment_text_rows.py     # line bands, gutter, hemistich split, marginalia

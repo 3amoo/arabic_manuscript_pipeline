@@ -26,9 +26,57 @@ genuine code/doc defect (§4 task 1).
 
 ---
 
-## Phase A — The one accuracy lever (highest value)
+## Phase A — The one accuracy lever (highest value) — **MEASURED NEUTRAL, CLOSED 2026-10-08**
 
-The adjacent-band merge pass. This is the only remaining work that can move CER.
+The adjacent-band merge pass. This was the only remaining work that could
+move CER. **It measured exactly 0.0000pp and was closed without shipping
+code** — the record below stays so the lever is not reopened without a
+genuinely new signal (the same bar that closed the tashkeel fill).
+
+**The paired measurement (2026-10-08).** The merge was implemented in
+`segment_text_rows.py` (adjacent + large height ratio + rule/verse guards)
+and A/B'd in memory over 51 pages (the 45 in-scope GT pages 23–67 plus
+the 6 out-of-window queue pages 3/6/16/20/21/111), against a control arm
+that reproduced the shipped corpus byte-for-byte on all 51 pages once the
+margin channel was excluded. Nothing was written into `data/output/`; the
+OCR cache ran off a /tmp copy and page text went to /tmp corpora scored
+by `evaluate_cer` on `raw_text` with the spec-008 alignment.
+
+- **Firing rate.** The rule fired on **1 band pair across 51 pages**
+  (page 32: a 143px band + an adjacent 53px shard, gap 15px). A second
+  geometric candidate (page 64) was blocked by the rule-strip guard —
+  the shard there is a decorative rule, and merging it would have
+  injected a black strip into a text crop. Constant sweeps
+  (ratio 1.5–2.5 × result-median-multiple 1.6–2.0) fire on at most 7
+  pairs; the `1.6×` median ceiling is self-consistent with
+  `split_oversized_lines()`, and going to `2.0×` only buys merges of two
+  real lines.
+- **The one change.** Page 32 line 10 `اسن` → `سب الني` — both wrong.
+  The heading is an interstitial the GT does not record (it sits between
+  GT verses 127 and 128), so `evaluate_cer` counts it as a hallucinated
+  verse and the CER cannot see it either way.
+- **Every metric identical to 16 decimals.** Corpus CER 23.7% → 23.7%,
+  WER 59.8% → 59.8%, diacritics 83.1% → 83.1%, base-letter CER 27.1%,
+  DER 35.8%; page 32 CER 0.3410493827160494 → 0.3410493827160494,
+  WER 0.640625 → 0.640625. Page confidence 75.3% → 75.5% (noise).
+- **Why the documented cases are out of reach.** The 17 `full_width`
+  low-confidence rows are not height-ratio-adjacent shards. Page 21's
+  heading is carved into four same-height bands (70–78px) separated by
+  86–95px gaps — ratio ~1.1, gap ≫ height, so the plan's own rule
+  ("vertically adjacent bands whose height ratio is large") cannot fire
+  without merging real lines. Page 6's 79px shard sits isolated between
+  126/128px lines with 80px gaps. Page 111's rows are dot-leader list
+  items, not split headings. Fixing those needs a different rule (merge a
+  *run* of sub-median bands) whose crop would be 3+ lines tall — not
+  this task, and not measured here.
+- **Guardrails confirmed.** Across 51 pages the pass touched no verse row
+  and dropped no verse; the verse/rule guards held.
+
+**Decision: no code shipped.** `main.py` / `segment_text_rows.py` were
+reverted to their pre-merge state. What remains is the recommendation
+itself, now retired, and the harness recipe (in-memory front end + /tmp
+cache copy + `evaluate_cer --output-root`) which is reusable for any
+future segmentation lever.
 
 **Why it survived when nothing else did.** Every OCR-side lever has been
 measured shut: surya −0.6pp (noise), 300 DPI −1.5pp (not significant), v3
@@ -48,21 +96,16 @@ paired measurement, not a headline target.
 
 ### Tasks
 
-1. **Implement the adjacent-band merge.** In `segment_text_rows.py`, before
-   OCR, merge vertically adjacent bands whose height ratio is large (a bold
-   heading split into fragments) so they are OCR'd as one line. Effort:
-   medium.
-2. **Measure it paired, then decide.** Re-run the escalation/queue audit with
-   `scripts/fallback_report.py --review-queue` and re-measure CER on the
-   affected pages. The 13 sub-4-char blind spots and the queue should both
-   shrink; measure rather than assume. **Ship only if the paired measurement
-   is net-positive** — the same bar the tashkeel fill failed (§AGENTS 4.12).
-   Effort: small; instrumentation already exists.
+1. ~~**Implement the adjacent-band merge.**~~ — **done then reverted
+   (2026-10-08): measured exactly net-neutral, see the phase header.**
+2. ~~**Measure it paired, then decide.**~~ — **done (2026-10-08): the
+   paired measurement above is the deliverable; the bar was not met.**
 3. **Make `RULE_MAX_HEIGHT_PX` scale-relative** (a fraction of page height or
    median band height) instead of an absolute pixel ceiling, so a
    differently-printed manuscript does not need re-tuning. **Requires** the
    162-band false-positive regression to be re-run. Effort: small, but the
-   regression is the work, not the change.
+   regression is the work, not the change. **Still open** — the only
+   Phase A item not closed by the measurement above.
 
 **Not in this phase:** re-tuning thresholds generally — calibrated in situ at
 9/10 rules caught, 0 false positives; a layer-based alternative was measured at
@@ -100,18 +143,24 @@ project's conclusions rest on. Do them as a batch.
 10. **Add a smoke-light routing test for `main.py`** — a synthetic page image
     routed through the pipeline end-to-end, so the orchestration path has a
     test that is not the 2-minute `--start 24 --end 26` run.
-11. **`detect_columns` consumer test, or delete the ambition** — the function
-    exists in `page_layout_detector.py:859` with no consumer. Either wire
-    column order into reading order (AGENTS §4.11) or mark it explicitly
-    observational. Do not leave it half-built.
+11. ~~**`detect_columns` consumer test, or delete the ambition**~~ — **resolved
+    2026-10-11: it has a consumer.** `main.py:1040` calls
+    `layout.detect_columns(binary, content_bbox)` and stores the result in
+    `columns_detected`, used as observational metadata. The "no consumer"
+    premise was wrong; the task is void. If a test is still wanted it should
+    cover the existing observational call site, not a hypothetical wiring.
 
 **Re-pin the test count in `docs/AGENTS.md` after each addition** — the §11
-expectation is a pinned number and drifts silently otherwise (it was stale at
-368 when the actual count was 425; corrected 2026-10-08).
+expectation is a pinned number and drifts silently otherwise. The pin has
+been wrong four times (368 → 400 → 422 → 425); the correct figure is **393**,
+the count `python -m unittest` collects over the 22 wired modules — which is
+what `verify_all.py` actually runs. The 425 was a `pytest --collect-only`
+count inflated by 34 module-level functions unittest never collects. Corrected
+2026-10-11. Prefer the `>N` floor form so the pin stops aging per addition.
 
 ---
 
-## Phase C — Reconcile the documentation with the code (a real defect was found)
+## Phase C — Reconcile the documentation with the code — **DONE 2026-10-08 (tasks 12–17)**
 
 `ingestion.md` flagged this and it is worse than described. The contract in
 AGENTS.md §4.4/§4.5 and the CHANGELOG does not match the shipped code.
@@ -141,27 +190,30 @@ same thing — it repairs a *specific* manuscript's CMap and writes a separate
 
 ### Tasks
 
-12. **Correct AGENTS.md §4.4 and §4.5** to describe what the code actually
-    does: per-page rendering with the text-layer path retired, the retirement
-    reason, and `tounicode_repair.py` as the cross-check-only successor. Mark
-    the `detect_pdf_type` / 85%-rule table rows **retired**, not
-    *implemented*. Also correct the CHANGELOG entry so a future reader does
-    not go looking for a function that does not exist. This is the one task in
-    this plan that fixes something a reader would actively be misled by.
-13. **Document the layer contract in `output_generator.py`'s module docstring**
-    (AGENTS §6 / §7): `raw_text/` is evidence and never overwritten; improved
+12. ~~**Correct AGENTS.md §4.4 and §4.5**~~ — **done (2026-10-08).** §4.4/§4.5
+    rewritten as RETIRED with the retirement reason (anagram-permuted ToUnicode)
+    and `tounicode_repair.py` as the cross-check-only successor; §3 table rows
+    for Direct Text / per-page routing / `detect_pdf_type` marked **retired**;
+    §5 production path corrected; CHANGELOG gained a `## 2026-10-08` correction
+    section plus two inline ⚠ corrections; `CLAUDE.md` structure listing and
+    `README.md` step 1 / package layout corrected to match.
+13. ~~**Document the layer contract in `output_generator.py`'s module docstring**~~
+    — **done (2026-10-08)** (AGENTS §6 / §7): `raw_text/` is evidence and never overwritten; improved
     output goes to a separate layer. The rule lives only in AGENTS today.
-14. **Document `token_verification`'s default behavior in `settings.yaml`** —
-    the flag is commented out there; record what the default actually is and
+14. ~~**Document `token_verification`'s default behavior in `settings.yaml`**~~
+    — **done (2026-10-08)** — the flag is commented out there; record what the default actually is and
     that it is review-only.
-15. **Document the inactive OCR knobs** (`min_confidence`,
-    `text_det_limit_side_len`) in `settings.yaml` with a one-line note each,
-    so a reader does not mistake them for live tuning handles.
-16. **Record the vote corrector's base-letter blind spot in its module
-    docstring** (`scripts/vote_correct_names.py`): exact-skeleton clustering
+15. ~~**Document the inactive OCR knobs** (`min_confidence`,
+    `text_det_limit_side_len`) in `settings.yaml`~~ — **done (2026-10-08)**:
+    `min_confidence` gained an INACTIVE note (read only by
+    `OCREngine.extract()`, which `main.py` never calls);
+    `text_det_limit_side_len` was already documented (no change needed).
+16. ~~**Record the vote corrector's base-letter blind spot in its module
+    docstring**~~ — **done (2026-10-08)** (`scripts/vote_correct_names.py`): exact-skeleton clustering
     cannot see base-letter errors by construction — that is why the vault
     cross-reference exists as a second, distinct-provenance signal.
-17. **Mark the README / AGENTS §2 stale-number cleanup as done.** The README
+17. ~~**Mark the README / AGENTS §2 stale-number cleanup as done.**~~ — **done
+    (2026-10-08).** The README
     rewrite (2026-10-08) and the AGENTS test-count re-pin (2026-10-08) close
     the component-roadmap rows in `ingestion.md`, `orchestration.md`, and
     `tests_quality.md` that still list them as open.
@@ -242,8 +294,12 @@ reader is actively misled by right now — AGENTS.md is the project's operating
 contract and it describes a code path that does not exist. It is also the
 cheapest: prose, no code, no measurement.
 
-Then **Phase A tasks 1–2**, because it is the only accuracy lever, and the
-measurement is the deliverable either way. Then **Phase B** as a batch
+~~Then **Phase A tasks 1–2**, because it is the only accuracy lever, and the
+measurement is the deliverable either way.~~ — **DONE 2026-10-08, and the
+measurement was neutral.** See the Phase A header: the merge fired once
+across 51 pages, changed `اسن` → `سب الني` on page 32, and moved no metric
+past the 16th decimal. Task 3 (scale-relative `RULE_MAX_HEIGHT_PX`) is still
+open. Then **Phase B** as a batch
 (mechanical, independent, low-risk). **Phase D** last, and only if the earlier
 phases leave the project in a state worth polishing.
 
@@ -252,7 +308,7 @@ tashkeel fill was closed — record the measurement and the reason, strike the
 item, and leave the guardrail. At that point the project's accuracy work is
 genuinely finished, and what remains is Phase B/C/D hygiene. That is a
 legitimate end state, not a failure: the negative results are the project's
-most durable output.
+most durable output. **That is the state the project is now in (2026-10-08).**
 
 ---
 
@@ -260,13 +316,15 @@ most durable output.
 
 | Phase | What it is | Can it move CER? | Items |
 |---|---|---|---|
-| A | Adjacent-band merge pass | **Yes — the only one left** | 1–3 |
+| A | Adjacent-band merge pass | **No — measured 0.0000pp and closed 2026-10-08** | 1–2 closed; 3 open |
 | B | Test-coverage debt | No — protects the measurement | 4–11 |
-| C | Doc/code reconciliation | No — fixes active misinformation | 12–17 |
+| C | Doc/code reconciliation | No — fixes active misinformation | 12–17 **done 2026-10-08** |
 | D | Small tooling | No — quality of life | 18–22 |
 | E | Blocked / closed by decision | No — needs external input | 5 items |
 | F | Guardrails | No — measured stop-conditions | 10 items |
 
-**22 actionable items.** Of those, 1 can move an accuracy number, 15 are
+**22 actionable items.** Of those, **0** can move an accuracy number
+(Phase A measured neutral and closed 2026-10-08 — the last accuracy
+lever in the project is now exhausted), 15 are
 mechanical, and 6 are documentation. The program that this project was built
 around is complete; what is left is consolidation.

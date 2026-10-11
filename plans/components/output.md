@@ -63,7 +63,7 @@ rotation fixed the second-worst: a review log with 245 entries from ≥10 runs,
 **0 of them describing text in the shipped product** — a review log describing text
 that no longer exists is worse than no log.
 
-The marker design has held up: 136 inline markers across the layer record lines that
+The marker design has held up: 118 inline markers across the layer (61 pages) record lines that
 escalated and got no backend answer, and they are load-bearing provenance rather than
 TODOs. `docs/output_patching.md` records the deliberate decision that **nothing was
 patched and no marker was ever removed by review** — the proposed
@@ -110,6 +110,6 @@ guards the shipped bytes.
    worth it.** `docs/output_patching.md` sketches it and declines at 9 patches; if the
    manual-review queue registration (rows 21–118) lands dozens more confirmed
    readings, the trade-off changes. Effort: medium; gating on queue progress.
-5. **Leave `raw_text/` and the 136 markers untouched.** This is a standing instruction
+5. **Leave `raw_text/` and the 118 markers untouched.** This is a standing instruction
    (`docs/output_patching.md`): the layers are evidence, and patching them makes the
    error rate unmeasurable instead of merely high.
