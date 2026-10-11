@@ -167,6 +167,26 @@ TEST_MODULES = [
     # existing mark) and its phrase-level disambiguation are what make it
     # safe where the MSA model was not (docs/vault_tashkeel_fill.md).
     "tests.test_vault_tashkeel_fill",
+    # Phase B (REMAINING_WORK_PLAN): close the test-coverage debt in the
+    # measurement machine and the orchestration layer.
+    #
+    # verify_cer_harness.py / verify_jiwer.py are `__main__`-only scripts
+    # (no TestCase classes), so pointing unittest at the modules
+    # themselves collects 0 tests and proves nothing. The wrapper invokes
+    # each main() and asserts the outcome - the scorer's normalization,
+    # jiwer wiring and missing-GT exit code are now actually exercised by
+    # this gate, so a break in evaluate_cer itself trips it.
+    "tests.test_cer_harness_wiring",
+    # The UNRESOLVED_MARKER's leading '#' is load-bearing:
+    # evaluate_cer.normalize_text() skips leading-'#' lines, which keeps
+    # the marker out of the CER benchmark. Drop the '#' and 69 pages of
+    # marker text silently count as OCR errors.
+    "tests.test_unresolved_marker",
+    # main.py's per-line escalation routing and the §4.13 acceptance
+    # policy, exercised on synthetic inputs instead of the 2-minute
+    # --start 24 --end 26 smoke run. Also pins that _run_page_once still
+    # calls layout.detect_columns (voided task 11's "no consumer" premise).
+    "tests.test_main_routing",
 ]
 SMOKE_ARGS = ["--start", "24", "--end", "26"]
 DOC = "عمود النسب نسخة 2"

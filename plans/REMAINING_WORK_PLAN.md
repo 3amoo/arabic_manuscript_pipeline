@@ -113,36 +113,70 @@ paired measurement, not a headline target.
 
 ---
 
-## Phase B — Close the test-coverage debt (mechanical, no measurement needed)
+## Phase B — Close the test-coverage debt (mechanical, no measurement needed) — **DONE 2026-10-11 (tasks 4–10)**
 
 The largest cluster of remaining items, all small, all independent, none
 requiring a decision. These protect the measurement machinery the whole
-project's conclusions rest on. Do them as a batch.
+project's conclusions rest on. **All shipped: 7 new test modules, 111 tests,
+gate count 393 → 414.**
 
 ### Tasks
 
-4. **`tests/test_tounicode_repair.py`** — cover the guarded adjacent-swap's
-   refusal to corrupt a valid map, and the anagram-detection path. The module
-   is shipped and untested (`ingestion.md`, `tests_quality.md`).
-5. **`tests/test_ocr_cache.py`** — `_hash_image` stability across identical
-   inputs, and the cache-hit path (AGENTS §4.8: the cache key must never
-   change).
-6. **`tests/test_repeated_verbatim_tracker.py`** — the `min_occurrences=3`
-   floor and the cross-run SQLite persistence that makes the tracker
-   permanent.
-7. **`tests/test_preprocessing.py`** — synthetic deliberately-skewed pages
-   (deskew correctness is currently only inferred, never asserted) plus a
-   binarization-parameters assertion.
-8. **Wire `verify_jiwer.py` and `verify_cer_harness.py` into `verify_all.py`'s
-   `TEST_MODULES`** — both exist and pass standalone but are unwired, so a
-   regression in the CER harness itself would not trip the gate. This is the
-   Phase 0 pattern repeated.
-9. **One-line marker regression test** — assert the `UNRESOLVED_MARKER` string
-   starts with `#`, so it stays excluded from CER measurement. The invariant
-   is load-bearing (the marker's `#` is what keeps the number honest).
-10. **Add a smoke-light routing test for `main.py`** — a synthetic page image
-    routed through the pipeline end-to-end, so the orchestration path has a
-    test that is not the 2-minute `--start 24 --end 26` run.
+4. ~~**`tests/test_tounicode_repair.py`**~~ — **done (2026-10-11), 29 tests.** Covers
+   the guarded adjacent-swap's refusal to corrupt a valid map, the
+   anagram-detection path, and `learn_corrections`'s single-anagram-only rule.
+   **Finding that corrected the task text:** `VERIFIED_CORRECTIONS` is consulted
+   *before* the swap loop and unconditionally, so `repair_word("اهلل", set())`
+   returns `"الله"` from the table with an empty vocabulary — the module's
+   "never guess" property has a table path that trusts the offline-verified
+   list without runtime vocab permission. The refusal tests use a word that is
+   not a table key. Pinned as documented behavior, not a bug.
+5. ~~**`tests/test_ocr_cache.py`**~~ — **done (2026-10-11), 13 tests.**
+   `_hash_image` stability, model-key disjointness, shape discrimination, and
+   the store/lookup round-trip plus the unseen-image `None` path. One pinned
+   detail: `lookup` coerces `likely_noise` to `bool`, so a stored `0` reads
+   back as `False`.
+6. ~~**`tests/test_repeated_verbatim_tracker.py`**~~ — **done (2026-10-11), 22
+   tests.** The `min_occurrences=3` boundary and the cross-run SQLite
+   persistence. **Finding that corrected the task text:** the clamp
+   `max(2, int(min_occurrences or 3))` yields an effective floor of **3** for
+   `0` and `None` (because `0 or 3` and `None or 3` evaluate to 3 *before* the
+   `max`), not 2 as the plan implied. Only an explicit `1` lands on 2. Tests
+   assert the real behavior. Also: the class has no `reset()`/`count()`; the
+   surface is `register`/`summary`/`close`, and `close` is idempotent.
+7. ~~**`tests/test_preprocessing.py`**~~ — **done (2026-10-11), 26 tests.**
+   Deskew correctness is now *asserted*, not inferred: a synthetic page is
+   rotated by a known angle, the rotated page is asserted to estimate ≈ −2°
+   first (so a detector that always returns 0 would fail the pre-check), then
+   `deskew_page` is asserted to land within ≤0.4° of zero. Plus
+   binarize-params round-trip and degenerate-input guards. Deskew is not
+   exactly idempotent (residual quantization in the refinement search); shape
+   preservation is asserted instead of byte-equality.
+8. ~~**Wire `verify_jiwer.py` and `verify_cer_harness.py` into `verify_all.py`'s
+   `TEST_MODULES`**~~ — **done (2026-10-11)** via `tests/test_cer_harness_wiring.py`
+   (2 tests). Both modules are `__main__`-only scripts with **no TestCase
+   classes**, so pointing `python -m unittest` at the modules themselves
+   collects 0 tests — a trivially-green pass that proves nothing. The wrapper
+   invokes each `main()` and asserts outcome + key output, so the scorer's
+   normalization, jiwer wiring and missing-GT exit code are now genuinely
+   exercised by the gate. `verify_cer_harness.main()` builds its synthetic
+   corpus under `/tmp/opencode` only — no `data/` side effects.
+9. ~~**One-line marker regression test**~~ — **done (2026-10-11), 3 tests**
+   (`tests/test_unresolved_marker.py`): the marker starts with `#`, is
+   non-empty, and contains the Arabic text — so `evaluate_cer.normalize_text()`
+   keeps it out of the CER number. **Note:** the constant actually reads
+   `غير محقق` (ق), not `غير محقيق` (ف) as this plan quoted it; the assertion
+   pins the real value.
+10. ~~**A smoke-light routing test for `main.py`**~~ — **done (2026-10-11), 16
+    tests** (`tests/test_main_routing.py`). `import main` works (no skip
+    needed). **Finding:** `_is_noise_line` is **not** in `main.py` — it is
+    `OCREngine._is_noise_line` (`ocr_engine.py:287`); main.py reaches it via
+    the engine, so the noise gate is tested through that path. Covers the
+    §4.13 acceptance policy on synthetic inputs (echo rejection,
+    `repeated_verbatim` cross-crop rejection, dead-backend `None`, the
+    ink-density gate firing before any API call) and pins that
+    `_run_page_once` still calls `layout.detect_columns` (task 11's voided
+    premise), including a 2-vs-1-column assertion on synthetic images.
 11. ~~**`detect_columns` consumer test, or delete the ambition**~~ — **resolved
     2026-10-11: it has a consumer.** `main.py:1040` calls
     `layout.detect_columns(binary, content_bbox)` and stores the result in
@@ -150,13 +184,15 @@ project's conclusions rest on. Do them as a batch.
     premise was wrong; the task is void. If a test is still wanted it should
     cover the existing observational call site, not a hypothetical wiring.
 
-**Re-pin the test count in `docs/AGENTS.md` after each addition** — the §11
-expectation is a pinned number and drifts silently otherwise. The pin has
-been wrong four times (368 → 400 → 422 → 425); the correct figure is **393**,
-the count `python -m unittest` collects over the 22 wired modules — which is
-what `verify_all.py` actually runs. The 425 was a `pytest --collect-only`
-count inflated by 34 module-level functions unittest never collects. Corrected
-2026-10-11. Prefer the `>N` floor form so the pin stops aging per addition.
+**Re-pin the test count in `docs/AGENTS.md` after each addition** — ~~the §11
+expectation is a pinned number and drifts silently otherwise.~~ **Resolved
+2026-10-11: the pin is now the floor form "393 OK فأكثر"**, so it no longer
+ages per addition (AGENTS §11, PROGRESS.md). The current true count is **414**
+(28 wired modules). The pin was wrong four times before (368 → 400 → 422 →
+425); the correct figure was 393, the count `python -m unittest` collects over
+the wired modules — which is what `verify_all.py` actually runs. The 425 was a
+`pytest --collect-only` count inflated by 34 module-level functions unittest
+never collects. **Phase B is now complete: 7 new modules, 111 tests.**
 
 ---
 
@@ -317,7 +353,7 @@ most durable output. **That is the state the project is now in (2026-10-08).**
 | Phase | What it is | Can it move CER? | Items |
 |---|---|---|---|
 | A | Adjacent-band merge pass | **No — measured 0.0000pp and closed 2026-10-08** | 1–2 closed; 3 open |
-| B | Test-coverage debt | No — protects the measurement | 4–11 |
+| B | Test-coverage debt | No — protects the measurement | 4–11 **done 2026-10-11** |
 | C | Doc/code reconciliation | No — fixes active misinformation | 12–17 **done 2026-10-08** |
 | D | Small tooling | No — quality of life | 18–22 |
 | E | Blocked / closed by decision | No — needs external input | 5 items |
@@ -325,6 +361,7 @@ most durable output. **That is the state the project is now in (2026-10-08).**
 
 **22 actionable items.** Of those, **0** can move an accuracy number
 (Phase A measured neutral and closed 2026-10-08 — the last accuracy
-lever in the project is now exhausted), 15 are
-mechanical, and 6 are documentation. The program that this project was built
-around is complete; what is left is consolidation.
+lever in the project is now exhausted). **Phase B is done 2026-10-11**
+(7 modules, 111 tests, gate 393 → 414) and **Phase C is done 2026-10-08**,
+leaving only Phase D (5 tooling items) as open mechanical work. The program
+that this project was built around is complete; what is left is consolidation.

@@ -74,27 +74,33 @@ runs without quota or GPU.
 
 ## Open issues / known problems
 
-- **The pinned count is stale.** `docs/AGENTS.md` pins 393 OK / 2 skipped
-  (re-pinned 2026-10-08). `check_tests()` only checks `returncode == 0` and
-  `"OK"` in the tail, so the count is documentation, not enforcement. The
-  number is what `python -m unittest` collects over the 22 wired modules —
-  `pytest --collect-only` reports 427 for the same modules, but 34 of those
-  are module-level `def test_*` functions (all of
-  `tests/test_benchmark_cer_wer.py`) that unittest never collects, so the
-  pytest figure is not what the gate runs. The count still ages by one per
-  addition — see REMAINING_WORK_PLAN Phase B task 11.
-- **Whole subsystems have no unit tests at all** (verified by direct-import grep):
-  `tounicode_repair.py`, `ocr_cache.py`, `surya_line_detector.py`,
-  `morphological_verifier.py`, `flag_suspicious_words.py`,
-  `repeated_verbatim_tracker.py`, `response_validation.py`, `review_manuscript.py`,
-  `scripts/render_review_crops.py`, `scripts/ab_upscale_der.py`.
+- ~~**The pinned count is stale.**~~ **Resolved 2026-10-11: the pin is now the
+  floor form** `393 OK فأكثر` (AGENTS §11), so it no longer ages per addition;
+  the current true count is **414** over 28 wired modules. `check_tests()` still
+  only checks `returncode == 0` and `"OK"` in the tail, so the count remains
+  documentation rather than enforcement — but the floor form means an honest
+  *shrink* (tests deleted) is the only way it can silently drift now. Historical
+  chain of wrong pins: 368/20 → 400 → 422 → 425 → 393 (425 was a
+  `pytest --collect-only` count inflated by 34 module-level functions unittest
+  never collects).
+- ~~**Whole subsystems have no unit tests at all**~~ — **mostly closed
+  2026-10-11.** Of the original list, `tounicode_repair.py` (29 tests),
+  `ocr_cache.py` (13) and `repeated_verbatim_tracker.py` (22) now have direct
+  coverage. Still untested: `surya_line_detector.py`, `morphological_verifier.py`,
+  `flag_suspicious_words.py`, `response_validation.py`, `review_manuscript.py`,
+  `scripts/render_review_crops.py`, `scripts/ab_upscale_der.py`. The first two are
+  measured-rejected code paths (surya off, verifier review-only), which lowers
+  but does not eliminate the cost of leaving them bare.
 - **`ocr_engine.py`'s real paths are untested** — only the two static noise filters
-  are exercised (via `test_escalation_policy`). The batching, cache-lookup/store and
-  `likely_noise` recomputation logic in `extract_segments_batch` — including the
-  documented stale-flag bug fix — have no direct regression net beyond the smoke run.
-- **`verify_jiwer.py` and `verify_cer_harness.py` exist but are not wired into
-  `verify_all.py`** — they are standalone check modules with `main()`s, duplicating
-  the Phase 0 "passing but unwired" hazard that was fixed for the other five.
+  are exercised (via `test_escalation_policy`), though the noise gate is now
+  reached through `OCREngine._is_noise_line` by `test_main_routing` (2026-10-11).
+  The batching, cache-lookup/store and `likely_noise` recomputation logic in
+  `extract_segments_batch` — including the documented stale-flag bug fix — still
+  have no direct regression net beyond the smoke run.
+- ~~**`verify_jiwer.py` and `verify_cer_harness.py` exist but are not wired into
+  `verify_all.py`**~~ — **resolved 2026-10-11.** They are `__main__`-only scripts
+  with no TestCase classes, so `tests/test_cer_harness_wiring.py` invokes each
+  `main()` and asserts the outcome; both are now in `TEST_MODULES`.
 - **The `marginalia`/`page_layout` fixtures depend on generated images**
   (`generate_fixtures.py`), so a fixture regeneration is an untracked failure mode.
 - **Coverage of `main.py`'s orchestration is indirect** — the pure escalation
@@ -103,24 +109,47 @@ runs without quota or GPU.
 
 ## Roadmap
 
-1. **Wire `verify_jiwer.py` and `verify_cer_harness.py` into `verify_all.py`** (or
-   invoke them as a fifth check). Effort: small. Rationale: they are exactly the
-   "passing but unwired" class Phase 0 fixed; a silent drift in the CER measurement
-   machine would not currently trip the gate.
-2. ~~**Re-pin the test count** in `docs/AGENTS.md`~~ — **done (2026-10-08, `REMAINING_WORK_PLAN.md` Phase C task 17), then corrected again the same day.** AGENTS §11 now reads 393 OK / 22 wired modules — the count `python -m unittest` actually collects, which is what `verify_all.py` runs. The intermediate 425 figure was the `pytest --collect-only` count, which inflates by 34 module-level functions unittest never collects; the earlier 368/20 and 400 figures were older still. Note the pin still ages by one every time a test is added — Phase B task 11 of the remaining-work plan says to re-pin after each addition, or change the pin to a `>N` form so it stops aging.
-3. **Add `tests/test_tounicode_repair.py`** — the guarded adjacent-swap's refusal to
-   guess (vocabulary miss → word unchanged) and `learn_corrections`'s
-   single-anagram-only rule. Effort: small. Rationale: the module's entire safety
-   property is "never guess", and it is currently untested.
-4. **Add `tests/test_ocr_cache.py`** — `_hash_image` stability across identical
-   input, model-key disjointness, and the `likely_noise` recomputation over a stale
-   cached row (the documented bug). Effort: small; needs no GPU (hash + a fake
-   result dict).
-5. **Add `tests/test_repeated_verbatim_tracker.py`** — the `min_occurrences` floor
-   (a first sighting never flags; a refrain legitimately passing twice does not),
-   cross-run persistence, and the `enabled=False` no-op path. Effort: small.
-6. **Add a smoke-light routing test for `main.py`** — a synthetic page image routed
-   through `_run_page_once` asserting `verse` vs `prose_only` vs
-   `blank_or_unclear`, decoupled from the GPU where possible. Effort: medium.
-   Rationale: the automatic poetry/prose routing is one of the project's better
-   designs and its only coverage is a 2-minute smoke run over three pages.
+1. ~~**Wire `verify_jiwer.py` and `verify_cer_harness.py` into `verify_all.py`**~~ —
+   **done (2026-10-11)** via `tests/test_cer_harness_wiring.py`, added to
+   `TEST_MODULES`. Both modules turned out to be `__main__`-only scripts with
+   **no TestCase classes**, so the naive wiring (adding the module names to
+   `TEST_MODULES`) would have collected 0 tests and passed vacuously — the
+   wrapper invokes each `main()` and asserts the outcome instead, so the
+   scorer's normalization, jiwer wiring and missing-GT exit code are now
+   genuinely exercised. `verify_cer_harness.main()` builds its synthetic corpus
+   under `/tmp/opencode` only (no `data/` side effects).
+2. ~~**Re-pin the test count** in `docs/AGENTS.md`~~ — **done (2026-10-08),
+   corrected 2026-10-08, and converted to the floor form 2026-10-11.** AGENTS §11
+   now reads **"393 OK فأكثر"** (28 wired modules), so the pin stops aging per
+   addition. The current true count is **414**. The historical chain of wrong
+   pins: 368/20 → 400 → 422 → 425 → 393 (the correct figure at the time; 425
+   was a `pytest --collect-only` count inflated by 34 module-level functions
+   unittest never collects). Phase B then added 111 tests to reach 414.
+3. ~~**Add `tests/test_tounicode_repair.py`**~~ — **done (2026-10-11), 29 tests.**
+   The guarded adjacent-swap's refusal to guess and `learn_corrections`'s
+   single-anagram-only rule are both covered. **Correction to the premise:**
+   `VERIFIED_CORRECTIONS` is consulted before the swap loop and
+   unconditionally, so `repair_word("اهلل", set())` returns `"الله"` from the
+   table with an empty vocabulary — the "never guess" property has a trusted
+   offline-table path. Refusal tests use a non-table word.
+4. ~~**Add `tests/test_ocr_cache.py`**~~ — **done (2026-10-11), 13 tests.**
+   `_hash_image` stability, model-key disjointness, shape discrimination,
+   store/lookup round-trip and the unseen-image `None` path. Pinned detail:
+   `lookup` coerces `likely_noise` to `bool` (a stored `0` reads back `False`).
+5. ~~**Add `tests/test_repeated_verbatim_tracker.py`**~~ — **done (2026-10-11),
+   22 tests.** The `min_occurrences=3` boundary, cross-run SQLite persistence,
+   and the `enabled=False` no-op path. **Correction to the premise:** the clamp
+   `max(2, int(min_occurrences or 3))` yields an effective floor of **3** for
+   `0`/`None` (because `0 or 3` evaluates to 3 before `max`), not 2; only an
+   explicit `1` lands on 2. Tests assert the real behavior.
+6. ~~**Add a smoke-light routing test for `main.py`**~~ — **done (2026-10-11), 16
+   tests** (`tests/test_main_routing.py`). `import main` works without a skip.
+   Covered on synthetic inputs: the §4.13 acceptance policy (echo rejection,
+   cross-crop `repeated_verbatim` rejection, dead-backend `None`, ink-density
+   gate firing before any API call) and the noise-line gate. **Correction to
+   the premise:** `_is_noise_line` is not in `main.py` — it is
+   `OCREngine._is_noise_line` (`ocr_engine.py:287`), reached via the engine, so
+   the noise gate is tested through that path. Also pins that
+   `_run_page_once` still calls `layout.detect_columns` (voiding the "no
+   consumer" premise in REMAINING_WORK_PLAN task 11), including a 2-vs-1-column
+   assertion on synthetic images.
