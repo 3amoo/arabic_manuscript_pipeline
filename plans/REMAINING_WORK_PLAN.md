@@ -26,12 +26,16 @@ genuine code/doc defect (§4 task 1).
 
 ---
 
-## Phase A — The one accuracy lever (highest value) — **MEASURED NEUTRAL, CLOSED 2026-10-08**
+## Phase A — The one accuracy lever (highest value) — **MEASURED NEUTRAL / IMPOSSIBLE, CLOSED 2026-10-12**
 
 The adjacent-band merge pass. This was the only remaining work that could
 move CER. **It measured exactly 0.0000pp and was closed without shipping
 code** — the record below stays so the lever is not reopened without a
 genuinely new signal (the same bar that closed the tashkeel fill).
+
+Its task 3 (scale-relative `RULE_MAX_HEIGHT_PX`) was the last open item in
+this plan; it was closed the same way on 2026-10-12 — measured, and the
+measurement said the change is not available. See tasks 1–3 below.
 
 **The paired measurement (2026-10-08).** The merge was implemented in
 `segment_text_rows.py` (adjacent + large height ratio + rule/verse guards)
@@ -100,12 +104,40 @@ paired measurement, not a headline target.
    (2026-10-08): measured exactly net-neutral, see the phase header.**
 2. ~~**Measure it paired, then decide.**~~ — **done (2026-10-08): the
    paired measurement above is the deliverable; the bar was not met.**
-3. **Make `RULE_MAX_HEIGHT_PX` scale-relative** (a fraction of page height or
+3. ~~**Make `RULE_MAX_HEIGHT_PX` scale-relative** (a fraction of page height or
    median band height) instead of an absolute pixel ceiling, so a
    differently-printed manuscript does not need re-tuning. **Requires** the
    162-band false-positive regression to be re-run. Effort: small, but the
-   regression is the work, not the change. **Still open** — the only
-   Phase A item not closed by the measurement above.
+   regression is the work, not the change.~~ — **done then rejected
+   (2026-10-12): the regression was built, run, independently re-verified, and
+   every scale-relative form is either non-no-op or useless. No code shipped.**
+   The harness is `scripts/regression_rule_height.py` (drives the project's own
+   front end with a stub OCR engine; the shipped detector *is* the control
+   arm). On the 10 target pages the proposed per-region-median form looks
+   perfect — f ∈ (0.484, 0.535), 0 of 199 bands change — and the full corpus
+   refutes it: **113 pages, 2265 bands, the required interval is (0.7632,
+   0.3230) — empty**, because the ratio (tallest rule in a region / that
+   region's median band height) spans **0.15×–0.76× (5.1×)** within this one
+   book. A rule's thickness is a property of the printing, not of the scribe's
+   hand. The best grid-searched fraction still moves 5 bands (3 false
+   positives on pages 1/7/56, 2 rules re-injected on pages 5/104). A
+   *document*-level median works numerically (0.30 × 162 px = 48.6 px, 0 bands
+   move) but is unshippable: it needs a whole-book pre-pass and makes the
+   ceiling a function of the run's page set — `--start 112 --end 113` would
+   apply a 169 px ceiling and classify that page's only real text as a rule,
+   breaking the `--start X --end Y` reproducibility the evidence architecture
+   rests on. Two clipped hybrids were measured too and rejected: `max(f ×
+   region median, 50)` **is** a byte-identical no-op for f ≤ 0.32 but can only
+   ever raise the ceiling, so its sole off-corpus failure mode is the false
+   positive this gate exists to avoid, and the fraction is unmeasured on any
+   other book; `min(f × region median, 50)` is a no-op only where the cap makes
+   it literally the shipped constant. **`RULE_MAX_HEIGHT_PX` stays an absolute,
+   DPI-scaled constant**; the `set_dpi_scale` entry stays (none of the
+   candidate ratios is viable, so it is not redundant); `RULE_MIN_WIDTH_RATIO`
+   / `RULE_MIN_ROW_INK_RATIO` / `FRAME_AS_BAND_RATIO` untouched. The
+   portability gap remains Task A2's manual guardrail: measure the separation
+   on a sample before trusting the constants on a new source. Full record:
+   `docs/escalation_threshold_audit.md` §Task A3.
 
 **Not in this phase:** re-tuning thresholds generally — calibrated in situ at
 9/10 rules caught, 0 false positives; a layer-based alternative was measured at
@@ -380,8 +412,10 @@ cheapest: prose, no code, no measurement.
 measurement is the deliverable either way.~~ — **DONE 2026-10-08, and the
 measurement was neutral.** See the Phase A header: the merge fired once
 across 51 pages, changed `اسن` → `سب الني` on page 32, and moved no metric
-past the 16th decimal. Task 3 (scale-relative `RULE_MAX_HEIGHT_PX`) is still
-open. Then **Phase B** as a batch
+past the 16th decimal. ~~Task 3 (scale-relative `RULE_MAX_HEIGHT_PX`) is still
+open.~~ — **DONE 2026-10-12, and the measurement was negative: no
+scale-relative form is a safe no-op, so no code shipped** (tasks 1–3 above).
+Then **Phase B** as a batch
 (mechanical, independent, low-risk). **Phase D** last, and only if the earlier
 phases leave the project in a state worth polishing.
 
@@ -390,7 +424,9 @@ tashkeel fill was closed — record the measurement and the reason, strike the
 item, and leave the guardrail. At that point the project's accuracy work is
 genuinely finished, and what remains is Phase B/C/D hygiene. That is a
 legitimate end state, not a failure: the negative results are the project's
-most durable output. **That is the state the project is now in (2026-10-08).**
+most durable output. **That is the state the project is now in: tasks 1–2
+closed 2026-10-08 (neutral) and task 3 closed 2026-10-12 (impossible), so
+Phase A has no open items and no accuracy lever remains.**
 
 ---
 
@@ -398,7 +434,7 @@ most durable output. **That is the state the project is now in (2026-10-08).**
 
 | Phase | What it is | Can it move CER? | Items |
 |---|---|---|---|
-| A | Adjacent-band merge pass | **No — measured 0.0000pp and closed 2026-10-08** | 1–2 closed; 3 open |
+| A | Adjacent-band merge pass; scale-relative rule ceiling | **No — merge measured 0.0000pp (2026-10-08); scale-relative form measured impossible (2026-10-12)** | 1–3 **closed** |
 | B | Test-coverage debt | No — protects the measurement | 4–11 **done 2026-10-11** |
 | C | Doc/code reconciliation | No — fixes active misinformation | 12–17 **done 2026-10-08** |
 | D | Small tooling | No — quality of life | 18–22 **done 2026-10-11** |
@@ -409,9 +445,15 @@ most durable output. **That is the state the project is now in (2026-10-08).**
 (Phase A measured neutral and closed 2026-10-08 — the last accuracy
 lever in the project is now exhausted). **Phases B, C, and D are all done**
 (B: 7 modules / 111 tests on 2026-10-11; C: doc reconciliation 2026-10-08;
-D: 5 tooling items 2026-10-11). The only remaining open item is **Phase A task
-3** (scale-relative `RULE_MAX_HEIGHT_PX`), which needs the 162-band
-false-positive regression re-run to ship safely. Everything else is Phase E
+D: 5 tooling items 2026-10-11). **Phase A task 3, the last open item, is now
+closed too (2026-10-12): the 162-band false-positive regression was built,
+run over all 113 pages / 2265 bands, and independently re-verified, and every
+scale-relative form of `RULE_MAX_HEIGHT_PX` is either non-no-op on this corpus
+(the per-region-median form's required fraction interval is empty) or a
+no-op only because it reduces to the shipped constant (the `min` hybrid) or
+because it is inert here and unmeasured anywhere else (the `max` hybrid). The
+constant stays absolute and DPI-scaled.** Everything remaining is Phase E
 (blocked on external input) or Phase F (standing guardrails requiring no
-action). The program that this project was built around is complete; the
-consolidation is now complete too.
+action). The program that this project was built around is complete, and the
+consolidation is now complete too — there are **zero open items** in this
+plan.
