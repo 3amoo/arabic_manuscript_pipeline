@@ -80,21 +80,77 @@ Nothing else can be measured until the reference exists. Deliverable: a page-lev
 file per manuscript page, aligned to the scan, consumable by the existing
 `evaluate_cer.py`.
 
-1. **Build a folio-aware splitter.** Read the Shamela text, split on the 481
-   `(NNN/أ|ب)` markers, and emit one GT segment per folio side. This is the alignment
-   backbone — no fuzzy matching needed for the split itself.
-2. **Map folios to PDF pages.** Establish the offset between manuscript folio numbers
-   and PDF page numbers (PDF page 1 is the cover plate; the body starts at page 2/3).
-   Spot-check by matching a few OCR pages against their GT segment by eye.
-3. **Write `data/ground_truth/اللامع العزيزي/page_NNN.txt`** in the format
-   `evaluate_cer.py` already expects (one line per manuscript line; hemistich pairs as
-   `right ... left`; comment lines start with `#`).
-4. **Score a first range.** Run `evaluate_cer` over pages 2–30 and record CER / WER /
-   diacritic metrics against the new GT. This produces the project's first held-out
-   baseline number.
+1. **Build a folio-aware splitter.** ✅ `scripts/split_shamela_folios.py` — 479
+   segments (1 front matter + 478 folio sides), 10 warnings, all Shamela typos like
+   `(2006/أ)` for `(206/أ)`. Split points are correct because the markers are in
+   reading order.
+2. **Map folios to PDF pages.** ✅ Done, and the mapping is *not* the simple offset the
+   plan assumed. See "Alignment findings" below.
+3. **Write `data/ground_truth/اللامع العزيزي/page_NNN.txt`.** ✅
+   `scripts/build_page_gt.py` — 54 page files for PDF pages 7–60.
+4. **Score a first range.** ✅ See "First held-out baseline" below.
 
-**Bar:** a CER figure for the new book that is reproducible and a written alignment
-report. No accuracy improvement is claimed or attempted in this phase.
+#### Alignment findings
+
+The plan expected "establish the offset" — a single constant. That model is wrong in
+three ways, each of which had to be measured rather than assumed:
+
+- **The PDF is not the body alone.** It is front matter (cover plate, title,
+  preface; PDF 1–6), the manuscript body (PDF 7–~1489), and back matter
+  (bibliography — `جمهرة`, `بيروت`, `دريد` — and indexes; PDF ~1490–1527). The
+  Shamela GT covers the body only. Page 1,500's content is absent from the GT
+  entirely, which is why linear fits over the whole PDF overshoot the page count by
+  25–45%.
+- **Chars-per-page is not constant.** It runs **611** in the opening pages (PDF
+  7–60), **1,378** through PDF 60–200, then settles at **~965** for the rest of the
+  body — exactly 3.0 PDF pages per folio side. A single global fit carries a
+  ±26-page residual; piecewise interpolation between measured anchors keeps local
+  error to ~2 pages.
+- **Page-level CER is not measurable at the page.** A folio side spans ~3 PDF pages,
+  so a single page holds a third of a side's text and the length mismatch alone
+  forces CER to ~0.7 regardless of quality. CER is only meaningful either at the
+  *folio-side* level or against a *sliding window* of the side's GT located per page.
+
+Every anchor offset is **measured**, never interpolated: verbatim character windows
+(16 chars where they survive, 10–12 on noisier pages — a 10-char verbatim Arabic
+match is still far beyond chance in 1.35M characters) located in the concatenated GT
+by `scripts/locate_pages_in_gt.py` and `scripts/sample_alignment_curve.py`.
+
+Boundary assignment is by **containment**, not argmax: the fraction of a page's
+14-char windows appearing verbatim in a side's GT is 14–25% for pages inside a side
+and 0–5% outside it (`scripts/assign_pages_to_sides.py`). That test cleanly separates
+the two where the monotone staircase could not.
+
+#### First held-out baseline
+
+Measured on the **middle page** of each folio side, scored against a sliding window of
+that side's GT (the sliding absorbs the residual ±2-page alignment error, leaving
+recognition quality):
+
+| folio | page | CER |
+|------|------|------|
+| 2/ب | 8 | 0.434 |
+| 3/أ | 12 | 0.442 |
+| 3/ب | 17 | 0.702 |
+| 4/أ | 20 | 0.421 |
+| 4/ب | 24 | 0.653 |
+| 5/أ | 29 | 0.416 |
+| 6/أ | 38 | 0.493 |
+| 6/ب | 48 | 0.624 |
+| 7/ب | 54 | 0.547 |
+| 8/أ | 58 | 0.385 |
+
+**Mean interior-page CER ≈ 0.512** over 10 sides. For reference, *عمود النسب*
+scores **0.237** on `vault_corrected_text`. The held-out book is roughly **2.2×
+worse** — consistent with the page-3 spot-check (0.425) that first flagged D3.
+
+The OCR also runs **~1.5× longer** than the GT it covers (51,380 OCR chars vs 34,269
+GT over the same pages): PaddleOCR fragments Arabic words and inserts characters on
+this small dense type. That inflation, not misalignment, is what pushed naive
+whole-side CER above 1.0.
+
+**Bar:** met — a reproducible CER figure plus this alignment report. No accuracy
+improvement is claimed or attempted in this phase.
 
 ### Phase 2 — Fix the inline-verse router (D1)
 

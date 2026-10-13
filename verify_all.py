@@ -145,16 +145,13 @@ PY = str(REPO / "myenv" / "bin" / "python")
 # into the pipeline: it changed 0 of the 50 gold-layer-scored lines, so it
 # moves nothing the project measures today. See docs/vault_tashkeel_fill.md
 # before treating this layer as anything but an evaluation artifact.
-# 2026-10-13 re-pin (plan 023): the held-out book اللامع العزيزي شرح ديوان
-# المتنبي entered the evidence tree — its raw_text/ pages (51 so far, a
-# measured subset of its 1,527) plus the two Shamela GT files under
-# data/ground_truth/. Neither touches the frozen corpus: عمود النسب and
-# لمعة النسب reproduce byte-identically (verified after the rule-detector
-# fix, 100% cache hits on the smoke run). The pin moved from
-# 60309548f2b265e6de11 (318 files) because the tree grew, not because any
-# measured page changed. The rule-detector fix shipped the same day is a
-# confirmed no-op on this corpus.
-INVARIANT = "5076df77615d5b837ddd"
+# 2026-10-13 re-pin #2 (plan 023 Phase 1): the held-out book's page coverage
+# grew from 51 to ~90 OCR'd raw_text pages (sparse samples to pdf 1500 for the
+# alignment curve) and gained its first GT page files under
+# data/ground_truth/اللامع العزيزي/ (54 pages). The frozen corpus is untouched:
+# the same 318 pre-اللامع files still hash to 60309548f2b265e6de11 exactly, and
+# 116 of them were rewritten by cache-hit runs with byte-identical content.
+INVARIANT = "80351e7b0506e0ee4d12"
 TEST_MODULES = [
     "tests.test_gt_alignment",
     "tests.test_diacritic_metrics",
