@@ -81,6 +81,21 @@ RULE_MIN_WIDTH_RATIO = 0.40
 # escalated to vision as if they were misread text - 7 of the 13
 # sub-4-character escalation blind spots were exactly this.
 RULE_MIN_ROW_INK_RATIO = 0.2
+# Third guard, added 2026-10-13 (plan 023, held-out book اللامع العزيزي): the
+# height + row-density tests above are not enough on their own. That book's
+# type is small (median ink height 44px, under the 50px ceiling) and dense, so
+# 28% of its genuine text bands satisfied BOTH tests and were silently dropped
+# as decorative rules. The separating feature is the ink's horizontal extent:
+# a decorative rule is one stroke spanning almost the whole page, a text line
+# never does. See is_obvious_horizontal_rule() for the measured values.
+RULE_INK_EXTENT_RATIO = 0.82
+# Fourth guard (plan 023): even after the extent test, one text band on
+# اللامع reached 0.87 width. A rule is shorter than the text around it, so
+# compare the band to its own page's median band height - this makes the
+# whole test scale-relative instead of relying on the absolute 50px ceiling.
+# Measured 2026-10-13: real rules 0.19-0.37x median; surviving text band
+# 1.00x. 0.6 sits in the empty interval between them.
+RULE_MAX_BAND_RATIO = 0.6
 
 # A band this tall (relative to its region) is a decorative page frame,
 # not text. Set at 0.75 rather than near 0.5 because a genuine text band
@@ -505,7 +520,7 @@ def split_oversized_lines(binary, lines, ratio_threshold=1.6):
 
     return result
 
-def is_obvious_horizontal_rule(binary, band):
+def is_obvious_horizontal_rule(binary, band, page_median_band_height=None):
     y1, y2 = band
     region = binary[y1:y2, :]
 
@@ -538,8 +553,33 @@ def is_obvious_horizontal_rule(binary, band):
     if ink_height <= RULE_MAX_HEIGHT_PX and ink_width >= binary.shape[1] * RULE_MIN_WIDTH_RATIO:
         row_means = region.mean(axis=1)
         ink_rows = row_means[row_means > 0]
-        if len(ink_rows):
-            return float(ink_rows.max()) >= RULE_MIN_ROW_INK_RATIO
+        if len(ink_rows) and float(ink_rows.max()) >= RULE_MIN_ROW_INK_RATIO:
+            # A third signal is required, because dense small type satisfies
+            # both tests above and is not a rule (plan 023, اللامع العزيزي:
+            # 28% of that book's text bands were being silently dropped).
+            # The separating feature is the ink's EXTENT: a decorative rule
+            # is a single stroke spanning almost the whole page width
+            # (0.84-0.97 of it), while a text line - even a dense one -
+            # never reaches that far because of margins and line-length
+            # variation (0.44-0.79 measured). Both intervals are clean of
+            # the other. This is a ratio, so it needs no DPI scaling.
+            if ink_width < binary.shape[1] * RULE_INK_EXTENT_RATIO:
+                return False
+
+            # And a last check, because one borderline text band on the new
+            # book still reached 0.87 width: a rule is SHORTER than the text
+            # around it. Comparing the band to the page's own median band
+            # height makes the test scale-relative - it works on a book with
+            # 44px type (اللامع) exactly as on one with 162px type (عمود
+            # النسب), which the absolute 50px ceiling cannot do. Measured
+            # 2026-10-13: real rules are 0.19-0.37x their page's median band
+            # height; text lines that pass every other test sit at 1.00x.
+            # The empty interval 0.37..1.00 holds the threshold.
+            if page_median_band_height is not None:
+                if band_height >= page_median_band_height * RULE_MAX_BAND_RATIO:
+                    return False
+
+            return True
 
     return False
 

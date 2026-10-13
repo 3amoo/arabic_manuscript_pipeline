@@ -600,10 +600,17 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None,
     band_plan = []
     all_crops = []
 
+    # The rule detector's scale-relative guard needs the page's own typical
+    # line height (plan 023: a rule is shorter than the text around it).
+    import statistics
+    page_median_band_height = (
+        statistics.median(b[1] - b[0] for b in lines) if lines else None
+    )
+
     for band in lines:
         y1, y2 = band
 
-        if rowseg.is_obvious_horizontal_rule(crop_bin, band):
+        if rowseg.is_obvious_horizontal_rule(crop_bin, band, page_median_band_height):
             band_plan.append({"kind": "rule"})
             continue
 
@@ -886,10 +893,16 @@ def extract_prose_region(prose_crop, ocr_engine, surya_detector=None,
     # ---- PASS 1: crop every retained line (no OCR yet).
     crops = []
     margin_idx = set()  # positions in `crops` that are margin notes
+    # Scale-relative guard for the rule detector (plan 023), as in the
+    # poetry path: a rule is shorter than this page's typical line height.
+    import statistics
+    prose_median_band_height = (
+        statistics.median(b[1] - b[0] for b in lines) if lines else None
+    )
     for band in lines:
         y1, y2 = band
 
-        if rowseg.is_obvious_horizontal_rule(prose_bin, band):
+        if rowseg.is_obvious_horizontal_rule(prose_bin, band, prose_median_band_height):
             continue
 
         # Marginalia inside the commentary region (NEXT_DEVELOPMENT_PLAN

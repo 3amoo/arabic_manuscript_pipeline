@@ -145,7 +145,16 @@ PY = str(REPO / "myenv" / "bin" / "python")
 # into the pipeline: it changed 0 of the 50 gold-layer-scored lines, so it
 # moves nothing the project measures today. See docs/vault_tashkeel_fill.md
 # before treating this layer as anything but an evaluation artifact.
-INVARIANT = "60309548f2b265e6de11"
+# 2026-10-13 re-pin (plan 023): the held-out book اللامع العزيزي شرح ديوان
+# المتنبي entered the evidence tree — its raw_text/ pages (51 so far, a
+# measured subset of its 1,527) plus the two Shamela GT files under
+# data/ground_truth/. Neither touches the frozen corpus: عمود النسب and
+# لمعة النسب reproduce byte-identically (verified after the rule-detector
+# fix, 100% cache hits on the smoke run). The pin moved from
+# 60309548f2b265e6de11 (318 files) because the tree grew, not because any
+# measured page changed. The rule-detector fix shipped the same day is a
+# confirmed no-op on this corpus.
+INVARIANT = "5076df77615d5b837ddd"
 TEST_MODULES = [
     "tests.test_gt_alignment",
     "tests.test_diacritic_metrics",
