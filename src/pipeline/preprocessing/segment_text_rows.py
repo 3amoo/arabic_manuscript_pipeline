@@ -108,6 +108,39 @@ RULE_MAX_BAND_RATIO = 0.6
 # with margin on both sides.
 FRAME_AS_BAND_RATIO = 0.75
 
+# --- Inline verse detection (plan 023, defect D1) ---
+# On عمود النسب the two hemistichs of a verse line are set in separate columns
+# with a blank gutter between them, and detect_gutter() finds it. On اللامع
+# العزيزي the verses are set INLINE in the commentary prose: there is no column
+# gutter and no vertical whitespace gap at all, so detect_gutter() returns False
+# on every page and every line routes prose_only — 0 of the GT's 6,531 " ... "
+# separators were ever produced.
+#
+# But a verse line still carries its two hemistichs separated by a wide CENTRED
+# blank run. Measured on اللامع pages 28-30, 200 DPI:
+#   verse lines   49-184 px   (and ink on BOTH sides of the gap: 1,300-2,300 px each)
+#   prose lines    10- 41 px
+# A short heading or a line's trailing whitespace can also produce a wide run,
+# but only on ONE side — its "gap" is the margin, not a hemistich break. The
+# both-sides ink test is what separates a verse from a short line: the false
+# positive that motivated it (`ومن التي أولها`, gap 329px) had 3 ink pixels
+# before its gap and 2,975 after.
+#
+# The gap is measured against the band's own INK SPAN, not the page width: a
+# verse line only occupies 620-885 px of a 1,546 px page, so a 54 px break is
+# 6-8% of its span but only 3.5% of the page. Ratios of the span keep the
+# threshold meaningful at every line length.
+INLINE_VERSE_MIN_GAP_RATIO = 0.055   # 49px on a 885px span
+INLINE_VERSE_MAX_GAP_RATIO = 0.40    # 329px-on-a-short-span was the false positive
+# Minimum ink on BOTH sides of the gap, in pixels at 200 DPI. Measured over
+# pages 7-60: the distribution of min(before, after) is cleanly bimodal — 78
+# bands below 322 (one-sided gaps: trailing whitespace, short reference lines
+# like `وفي الديوان ص`, section headings), a completely EMPTY interval from
+# 322 to 1,123, then the real verses from 1,123 upward (median 1,772). 900 sits
+# inside the empty interval with margin on both sides.
+INLINE_VERSE_MIN_SIDE_INK = 900
+INLINE_VERSE_MIN_SPAN_RATIO = 0.20   # a verse spans real width, not a margin note
+
 # WHY 34 (escalation-threshold audit, 2026-09-21,
 # docs/escalation_threshold_audit.md): this manuscript's printed rules
 # are 27-32 px tall at 200 DPI, and the old 18 px ceiling let them
@@ -669,6 +702,86 @@ def classify_band(binary, band, gutter_info):
     right_frac = right_mass / total
 
     return "margin" if max(left_frac, right_frac) >= MARGIN_SIDE_INK_RATIO else "main"
+
+
+def find_inline_hemistich_gap(binary, band):
+    """
+    Locate the wide centred blank run that separates a verse line's two
+    hemistichs when the verse is set inline in prose (plan 023, D1).
+
+    Returns (gap_start, gap_end) in pixels, or (None, None) when the band has no
+    such gap. This is geometric only — it never looks at the OCR text.
+
+    The run must be interior to the ink (not a margin): its width is measured
+    strictly between the band's first and last inked column, so trailing
+    whitespace after a short line cannot masquerade as a hemistich break.
+    """
+    y1, y2 = band
+    region = binary[y1:y2, :]
+    if region.size == 0:
+        return None, None
+
+    cols = region.sum(axis=0)
+    nz = np.nonzero(cols)[0]
+    if len(nz) < 2:
+        return None, None
+
+    ink_left, ink_right = int(nz[0]), int(nz[-1])
+    ink_span = ink_right - ink_left
+    if ink_span < INLINE_VERSE_MIN_SPAN_RATIO * binary.shape[1]:
+        return None, None
+
+    run = best = best_start = 0
+    for x in range(ink_left, ink_right + 1):
+        if cols[x] == 0:
+            if run == 0:
+                start = x
+            run += 1
+            if run > best:
+                best, best_start = run, start
+        else:
+            run = 0
+
+    if best == 0:
+        return None, None
+
+    ratio = best / max(ink_span, 1)
+    if not (INLINE_VERSE_MIN_GAP_RATIO <= ratio <= INLINE_VERSE_MAX_GAP_RATIO):
+        return None, None
+
+    return best_start, best_start + best
+
+
+def is_inline_verse(binary, band):
+    """
+    Is this band a verse line whose two hemistichs are set inline (plan 023, D1)?
+
+    The gutter-based classify_line() cannot answer this: on اللامع the verses
+    carry no column gutter at all, so every line falls through to full_width and
+    the GT's 6,531 hemistich separators are never produced. This looks at the
+    typography instead — a verse has a wide centred blank run with real ink on
+    BOTH sides of it.
+
+    The both-sides test is the guard that makes the classifier usable. A short
+    heading produces a wide run too, but its run is trailing whitespace: the
+    band `ومن التي أولها` measured 329px of "gap" with 3 ink pixels before it
+    and 2,975 after. Requiring real ink on each side drops exactly that case
+    while keeping every measured verse — and the two populations are not close
+    (see INLINE_VERSE_MIN_SIDE_INK: an empty interval separates them).
+    """
+    g_start, g_end = find_inline_hemistich_gap(binary, band)
+    if g_start is None:
+        return False
+
+    y1, y2 = band
+    region = binary[y1:y2, :]
+    before = int(region[:, :g_start].sum())
+    after = int(region[:, g_end:].sum())
+
+    return (
+        before >= INLINE_VERSE_MIN_SIDE_INK
+        and after >= INLINE_VERSE_MIN_SIDE_INK
+    )
 
 
 def crop_nonempty_x(

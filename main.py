@@ -674,7 +674,21 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None,
                 all_crops.append(full_img)
             else:
                 full_idx = None
-            band_plan.append({"kind": "full_width", "img": full_img, "idx": full_idx})
+            # Inline verse (plan 023, D1): on اللامع the hemistichs are set
+            # inline with no column gutter, so the band falls through to
+            # full_width here. is_inline_verse() finds the centred blank run
+            # between them; the split is applied in PASS 2 once the OCR text
+            # exists. Stored on the plan rather than computed there so the
+            # gap geometry is read once, before any OCR call.
+            inline_gap = (
+                rowseg.find_inline_hemistich_gap(crop_bin, band)
+                if rowseg.is_inline_verse(crop_bin, band)
+                else (None, None)
+            )
+            band_plan.append({
+                "kind": "full_width", "img": full_img, "idx": full_idx,
+                "inline_gap": inline_gap, "img_y": band,
+            })
 
     # ---- ONE batched OCR call for every line crop collected across the
     # whole poetry region (chunked internally by OCREngine), instead of
@@ -820,9 +834,29 @@ def extract_poetry_region(poetry_crop, ocr_engine, vision_engine=None,
                     line_result["confidence"], "below_threshold")
 
             if line_result["text"] and not line_result.get("likely_noise"):
+                text = line_result["text"]
+                g_start, g_end = plan.get("inline_gap", (None, None))
+                if g_start is not None:
+                    # Map the gap's position in the ink onto the OCR text by
+                    # character fraction. Geometric — it never reads the OCR
+                    # content to decide where the hemistichs break.
+                    y1, y2 = plan["img_y"]
+                    region = crop_bin[y1:y2, :]
+                    cols = region.sum(axis=0)
+                    nz = np.nonzero(cols)[0]
+                    if len(nz) >= 2:
+                        ink_left, ink_right = int(nz[0]), int(nz[-1])
+                        frac = (g_start - ink_left) / max(
+                            1, ink_right - ink_left
+                        )
+                        cut = int(round(frac * len(text)))
+                        if 0 < cut < len(text):
+                            text = (
+                                f"{text[:cut].strip()} "
+                                f"... {text[cut:].strip()}"
+                            )
                 rendered_lines.append(
-                    _unresolved_line_marker(line_result)
-                    + line_result["text"]
+                    _unresolved_line_marker(line_result) + text
                 )
                 kept_results.append(line_result)
 
