@@ -145,15 +145,7 @@ PY = str(REPO / "myenv" / "bin" / "python")
 # into the pipeline: it changed 0 of the 50 gold-layer-scored lines, so it
 # moves nothing the project measures today. See docs/vault_tashkeel_fill.md
 # before treating this layer as anything but an evaluation artifact.
-# 2026-10-12 re-pin: 113 GT placeholders + rendered PNGs were added under
-# data/ground_truth/<doc>/ via bootstrap_ground_truth.py (113 pages at 300 DPI)
-# to open the human-transcription path mandated by AGENTS.md §4.12. The
-# placeholders are '#'-comment-only files, so evaluate_cer.py still treats them
-# as no-usable-content and exits 2 (honest "no measurement") until a human
-# fills them. raw_text/ and every measured number are untouched; the hash moves
-# purely because the evidence tree grew by 113 .txt files. Re-pin from
-# 60309548f2b265e6de11 (318 files) -> 8b62030d8b920c84c645 (431 files).
-INVARIANT = "8b62030d8b920c84c645"
+INVARIANT = "60309548f2b265e6de11"
 TEST_MODULES = [
     "tests.test_gt_alignment",
     "tests.test_diacritic_metrics",

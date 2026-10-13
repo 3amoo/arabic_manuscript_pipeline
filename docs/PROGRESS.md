@@ -258,7 +258,7 @@ The benchmark scores the `vault_corrected_text/` layer since the Task 6 promotio
 | Diacritics accuracy | **83.0%** (raw layer: 83.1%) | same |
 | Scored pages | **45** of 113 (26 clean / 17 low-confidence / 2 recovered) | `docs/CLAUDE.md`, spec 008 |
 | Ground truth | **620 numbered verses**, covering pages 23-67 only | `data/ground_truth/عمود النسب/عمود_النسب.clean.md` |
-| Evidence invariant | `8b62030d8b920c84c645` over 431 `.txt` files | `verify_all.py`; `docs/output_patching.md` |
+| Evidence invariant | `60309548f2b265e6de11` over 318 `.txt` files | `verify_all.py`; `docs/output_patching.md` |
 | Worst / best pages | p65 43.6% / p60 53.3% / p28 51.3% vs p55 9.0% / p24 10.6% | `data/evaluation_reports/019-escalation-pass/quality_report.txt` |
 
 Earlier references, preserved: spec 006 CER 25.0% / 43 pages (`data/evaluation_reports/006/`);
