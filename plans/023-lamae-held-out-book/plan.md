@@ -170,6 +170,41 @@ either re-closed with the new data or reopened with evidence.
 
 **Bar:** every re-closed item carries a measurement from *both* books.
 
+#### `RULE_MAX_HEIGHT_PX` — the closure REVERSED, and for a different reason than expected
+
+Phase A task 3 closed this as "no scale-relative ceiling works," on the strength of
+`scripts/regression_rule_height.py` over the old book: the rule/region-median ratio
+spans **5.1×** (0.149–0.763), so no single fraction separates rules from text.
+
+The held-out book refutes that closure — but not by finding a fraction that works.
+It refutes the *premise* that the ceiling is what separates them. Re-running the same
+regression on اللامع pages 7–60 (after fixing its reimplementation, which had not been
+updated for the two new guards and was recording the two-argument verdict instead of
+the shipped one — `--pdf` added to make the book selectable):
+
+- the rule/region-median spread here is **exactly 1.000** (0.460–0.460), not 5.1×
+- there is **one** true rule band in 1,384 bands (page 54: ink height 29px, width
+  0.974, 0.37× the page median)
+- the absolute ceiling **alone** would classify **581** bands as rules; the shipped
+  five-guard predicate classifies **1**
+
+In other words: on this book the height ceiling has **no discriminating power at
+all** — type and rules are the same height. The two guards added during the
+rule-dropping fix (ink extent and band-to-median ratio) are doing 100% of the work,
+preventing **580 false positives (42% of the book's text bands)** from being silently
+dropped.
+
+So the closure is re-closed, but the recorded reason changes: it is not "no fraction
+is computable," it is "**the absolute ceiling is not the discriminator on a
+small-type book, and the ratio guards already generalise**." `RULE_MAX_HEIGHT_PX`
+stays absolute (DPI-scaled) — but as a weak necessary condition, not the separating
+signal. The separating signal is `RULE_INK_EXTENT_RATIO` + `RULE_MAX_BAND_RATIO`,
+both of which are already scale-free and work on both books.
+
+Side effect worth keeping: the regression's faithfulness self-check now exercises the
+shipped five-guard predicate on both books (1384/1384 and 60/60), where before it
+only reproduced the three-guard version.
+
 ### Phase 4 — Handle non-text pages (D2)
 
 Skip cover plates and blank pages by ink density and page-size anomaly, rather than

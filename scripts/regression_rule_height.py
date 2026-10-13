@@ -192,14 +192,29 @@ def rule_verdict_from_record(r, ceiling):
     """The shipped predicate re-judged from the recorded measurements under an
     explicit ceiling - the frame branch is ceiling-independent, the height
     branch is not. Kept byte-faithful to is_obvious_horizontal_rule; the
-    faithfulness self-check pins that."""
+    faithfulness self-check pins that.
+
+    Mirrors all four guards (plan 023 added the third and fourth): height,
+    width, row-ink density, ink extent, and the scale-relative band-to-median
+    ratio. The extent and median guards are ceiling-independent, so they are
+    applied identically under every swept ceiling.
+    """
     if r["band_height"] > r["region_height"] * rowseg.FRAME_AS_BAND_RATIO:
         return True
-    return (
+    if not (
         r["ink_height"] <= ceiling
         and r["width_ratio"] >= rowseg.RULE_MIN_WIDTH_RATIO
         and r["row_ink_max"] >= rowseg.RULE_MIN_ROW_INK_RATIO
-    )
+    ):
+        return False
+    # extent guard: a rule spans nearly the whole page, text never does
+    if r["width_ratio"] < rowseg.RULE_INK_EXTENT_RATIO:
+        return False
+    # scale guard: a rule is shorter than the text around it
+    med = r.get("median_band_height")
+    if med is not None and r["band_height"] >= med * rowseg.RULE_MAX_BAND_RATIO:
+        return False
+    return True
 
 
 def _median_band_height(bands):
@@ -244,8 +259,10 @@ def _install_recorder(log):
 
     def recording_rule(binary, band, *args, **kwargs):
         # Control arm: the shipped detector is called exactly as the pipeline
-        # calls it, so this records the real, shipped classification.
-        verdict = real_rule(binary, band)
+        # calls it. The pipeline passes the page's median band height as the
+        # third argument (plan 023); forward it verbatim so the recorded
+        # verdict is the real shipped one, not the two-argument default.
+        verdict = real_rule(binary, band, *args, **kwargs)
         metrics = _band_metrics(binary, band)
         log.records.append(
             {
@@ -253,8 +270,10 @@ def _install_recorder(log):
                 "region": log.region,
                 "band": [int(band[0]), int(band[1])],
                 "is_rule": bool(verdict),
+                # What the caller actually passed as the median, which is what
+                # the shipped scale guard used - not a recomputation.
                 "median_band_height": (
-                    round(_median_band_height(log.bands), 3) if log.bands else None
+                    round(args[0], 3) if args else None
                 ),
                 "num_bands_in_region": len(log.bands) if log.bands else 0,
                 **(metrics or {}),
@@ -278,7 +297,7 @@ def _install_recorder(log):
     return restore
 
 
-def _run_pages(pages, config, chunk=20):
+def _run_pages(pages, config, chunk=20, pdf_name=SOURCE_PDF):
     """Drive the real page pipeline over `pages`, recording every rule
     classification. Rendering is chunked so a full book never holds every
     page's pixel buffer at once (113 pages at 200 DPI is ~3 GB of BGR)."""
@@ -295,7 +314,7 @@ def _run_pages(pages, config, chunk=20):
         for chunk_start in range(0, len(sorted_pages), chunk):
             block = sorted_pages[chunk_start:chunk_start + chunk]
             loaded = handler.load_file(
-                Path(REPO / "data" / "input" / SOURCE_PDF),
+                Path(REPO / "data" / "input" / pdf_name),
                 dpi=config.get("pdf", {}).get("dpi", 200),
                 start_page=min(block),
                 end_page=max(block),
@@ -535,9 +554,9 @@ def _parse_pages(spec):
     return sorted(set(pages))
 
 
-def _page_count():
+def _page_count(pdf_name=SOURCE_PDF):
     import fitz
-    with fitz.open(REPO / "data" / "input" / SOURCE_PDF) as doc:
+    with fitz.open(REPO / "data" / "input" / pdf_name) as doc:
         return len(doc)
 
 
@@ -561,6 +580,12 @@ def main_cli():
              "by the full-corpus sweep)",
     )
     parser.add_argument(
+        "--pdf",
+        default=SOURCE_PDF,
+        help="PDF filename under data/input to sweep (default: the tuned book). "
+             "Plan 023 re-runs this regression on the held-out book.",
+    )
+    parser.add_argument(
         "--report",
         default=None,
         help="optional path to write the full JSON record (outside data/)",
@@ -575,7 +600,7 @@ def main_cli():
     pages = (
         _parse_pages(args.pages)
         if args.pages is not None
-        else (AUDIT_PAGES if args.audit_pages else list(range(1, _page_count() + 1)))
+        else (AUDIT_PAGES if args.audit_pages else list(range(1, _page_count(args.pdf) + 1)))
     )
     import yaml
     config = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
@@ -588,7 +613,7 @@ def main_cli():
           f"{pages[0]}-{pages[-1]} ({len(pages)} pages)")
     print(f"# shipped ceiling: RULE_MAX_HEIGHT_PX = {rowseg.RULE_MAX_HEIGHT_PX} px")
 
-    records = _run_pages(pages, config)
+    records = _run_pages(pages, config, pdf_name=args.pdf)
     for i, r in enumerate(records):
         r["id"] = i
 
