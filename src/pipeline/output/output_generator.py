@@ -161,8 +161,16 @@ class OutputGenerator:
         )
 
         filename = self.page_path(document_name, page_num)
+        # A non-text plate (cover, fully black scan — plan 023 D2) is recorded
+        # as such rather than as an empty text page, so the review queue can
+        # tell a plate from a genuinely blank page. The marker is a comment
+        # line, so it is invisible to every text-scoring path.
+        body = full_body
+        if page.get('status') == 'non_text_plate':
+            marker = "# Non-text plate (cover or fully black scan) — no OCR attempted"
+            body = f"{marker}\n" if not body else f"{marker}\n\n{body}"
         filename.write_text(
-            f"{chr(10).join(header_lines)}\n\n{full_body}",
+            f"{chr(10).join(header_lines)}\n\n{body}",
             encoding='utf-8',
         )
 

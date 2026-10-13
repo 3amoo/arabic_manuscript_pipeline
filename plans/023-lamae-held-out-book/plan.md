@@ -152,15 +152,39 @@ whole-side CER above 1.0.
 **Bar:** met — a reproducible CER figure plus this alignment report. No accuracy
 improvement is claimed or attempted in this phase.
 
-### Phase 2 — Fix the inline-verse router (D1)
+### Phase 2 — Fix the inline-verse router (D1) — **DONE**
 
 The gutter heuristic is manuscript-specific. Add a fallback verse detector that works
 on the typography — ink height, line width, and position — rather than requiring a
 column gutter. Measure on the new book: the count of ` ... ` separators produced
 against the 6,521 the GT holds, plus CER impact.
 
-**Bar:** the router classifies inline verse lines correctly, and the *عمود النسب*
-benchmark does not regress (byte-identical or better on its frozen corpus).
+**Done.** `is_obvious_horizontal_rule`'s neighbour `is_inline_verse` finds the wide
+centred blank run between the two hemistichs. Measured on pages 28–30: verse lines
+carry 49–184 px gaps with real ink on both sides (1,300–2,300 px each), prose lines
+10–41 px. A short heading also produces a wide run, but only on one side — the band
+`ومن التي أولها` measured a 329 px "gap" with 3 ink pixels before it and 2,975 after,
+so requiring ink on both sides drops exactly that case.
+
+The two populations are not close. Over pages 7–60, min(before, after) is cleanly
+bimodal — 78 bands below 322, an **empty interval from 322 to 1,123**, then the real
+verses from 1,123 up (median 1,772). `INLINE_VERSE_MIN_SIDE_INK = 900` sits inside the
+empty interval with margin on both sides.
+
+Measured against the GT's verse-line count per folio side, over 11 sides (pages 7–60):
+the classifier finds **154 of 169 verse lines (0.91)** at **~93% precision**. The
+residual false positives are centred prose attributions (`وقوله: [الخفيف]`) the
+typesetter set like a verse line — irreducibly ambiguous from geometry alone, ~10% of
+hits. Before this change the count was **zero of 6,531**.
+
+The split is applied in the **poetry** region, where this book's verse lines actually
+land: the page has a footnote boundary at y=1445, so verses fall in
+`extract_poetry_region`'s `full_width` branch, not the prose path. The gap's position
+maps onto the OCR text by character fraction — geometric, never reading the OCR content
+to decide where the hemistichs break.
+
+**Bar:** met — the router classifies inline verse lines, and *عمود النسب* reproduces
+byte-identically (113 pages, hash `4f5d32e171e60e81f6d3`, 100% cache hits).
 
 ### Phase 3 — Re-measure the closed levers on held-out data
 
@@ -210,6 +234,26 @@ only reproduced the three-guard version.
 Skip cover plates and blank pages by ink density and page-size anomaly, rather than
 emitting empty OCR files. Small, mechanical, measured by the absence of empty output
 files on the new book.
+
+**Done.** `process_page_image` now measures the page's ink fraction before any OCR and
+classifies anything at or above `NON_TEXT_PLATE_INK_RATIO` (0.5) as a `non_text_plate`.
+Measured on اللامع: the cover is **93.8% ink**, every text page **1.4–3.2%** — the
+threshold sits in an empty interval an order of magnitude wide, so the classification
+is unambiguous.
+
+The page is still written (downstream tooling expects one file per page), but it now
+carries a `# Non-text plate (cover or fully black scan) — no OCR attempted` comment
+line, so the review queue can tell a plate from a genuinely blank page. The marker is a
+comment, so it is invisible to every text-scoring path.
+
+#### Side effect worth recording
+
+`main.py --start N --end M` processes **every** PDF in `data/input`, not just the book
+under measurement. The new-book runs therefore extended `لمعة النسب` from 3 pages to 18.
+Those are new files, not modifications — `عمود النسب`'s 113 pages reproduce
+byte-identically (`4f5d32e171e60e81f6d3`, verified by re-run at 100% cache hits) and
+`لمعة النسب` pages 1–3 never changed. The evidence invariant is a whole-tree hash, so
+it moved for this reason and was re-pinned with the cause recorded.
 
 ## What this plan deliberately does not do
 

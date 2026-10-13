@@ -59,6 +59,12 @@ logger = logging.getLogger(__name__)
 _ink_density_threshold = 0.02
 _ink_density_threshold_warned = False
 
+# Non-text plate detection (plan 023, D2). A cover plate or fully black scan is
+# not a blank page and should not be reported as one. Measured on اللامع: the
+# cover plate is 93.8% ink, every text page 1.4-3.2%. 0.5 sits in the empty
+# interval between them.
+NON_TEXT_PLATE_INK_RATIO = 0.5
+
 
 class ExistingPageRefused(RuntimeError):
     """The corpus-regeneration guard (Phase D task 19) refused to let a
@@ -1095,6 +1101,25 @@ def _run_page_once(image, ocr_engine, vision_engine=None, surya_detector=None,
     )
     boxes = layout.remove_page_footer_components(boxes, image.shape[1], image.shape[0])
 
+    # Non-text plate detection (plan 023, D2): a cover plate or an entirely
+    # black scan has no text to find, but it is not a blank page either —
+    # reporting it as blank makes the review queue indistinguishable from a
+    # genuinely empty page. Measured on اللامع: the cover is 93.8% ink, every
+    # text page 1.4-3.2%. The gap is an order of magnitude, so the threshold
+    # sits at its midpoint and the classification is unambiguous.
+    _ink = float((image[:, :, :3].mean(axis=2) < 128).mean())
+    if _ink >= NON_TEXT_PLATE_INK_RATIO:
+        return {
+            "text": "", "prose_text": None, "margin_text": "",
+            "structure": "blank_or_unclear",
+            "escalations": [], "confidence_percent": 0.0,
+            "content_bbox": None,
+            "footnotes_detected": False,
+            "footnote_score": 0,
+            "columns_detected": 1,
+            "status": "non_text_plate",
+        }
+
     # Page-level gutter, computed once here so both the poetry and the
     # prose region use the SAME physical seam. The prose crop's own
     # gutter detection often fails on a narrow crop (page 47), but the
@@ -1390,6 +1415,7 @@ def process_document(file_path: Path, config: dict, ocr_engine: OCREngine,
             'source_file': page_data['source_file'],
             'confidence_percent': page_ocr['confidence_percent'],
             'binarization_attempt': page_ocr['binarization_attempt'],
+            'status': page_ocr.get('status', 'ok'),
         }
 
         # Saved immediately, not after the whole book finishes - this way

@@ -145,12 +145,17 @@ PY = str(REPO / "myenv" / "bin" / "python")
 # into the pipeline: it changed 0 of the 50 gold-layer-scored lines, so it
 # moves nothing the project measures today. See docs/vault_tashkeel_fill.md
 # before treating this layer as anything but an evaluation artifact.
-# 2026-10-13 re-pin #3 (plan 023 Phase 2): the inline-verse detector now splits
-# اللامع's hemistich pairs in the poetry region, so its raw_text pages changed
-# (27-29 regenerated; 5 verse lines per page now carry " ... " where none did).
-# The frozen corpus is untouched: the same 318 pre-اللامع files still hash to
-# 60309548f2b265e6de11 exactly, and the smoke run was 100% cache hits.
-INVARIANT = "ba889792659d173bfbb5"
+# 2026-10-13 re-pin #4 (plan 023 Phases 2-4). Three benign causes, none a
+# regression to any pre-existing page:
+#  - Phase 2's inline-verse split regenerated اللامع pages 27-29.
+#  - Phase 4's cover-plate detector reclassified اللامع page 1 (now marked
+#    "# Non-text plate" instead of an empty text page).
+#  - main.py --start/--end processes EVERY pdf in data/input, so the new-book
+#    runs incidentally extended لمعة النسب from 3 pages to 18. Those 15 pages
+#    are new files, not modifications: عمود النسب's 113 pages reproduce
+#    byte-identically (4f5d32e171e60e81f6d3, verified by re-run, 100% cache
+#    hits) and لمعة النسب pages 1-3 are unchanged.
+INVARIANT = "8fc303cd702fa37e9e25"
 TEST_MODULES = [
     "tests.test_gt_alignment",
     "tests.test_diacritic_metrics",
