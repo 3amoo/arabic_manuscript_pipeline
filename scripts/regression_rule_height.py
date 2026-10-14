@@ -2,6 +2,20 @@
 scripts/regression_rule_height.py — the 162-band false-positive regression for
 a scale-relative RULE_MAX_HEIGHT_PX (plans/REMAINING_WORK_PLAN.md Phase A task 3).
 
+UPDATE (plan 023, 2026-10-13) — the conclusion below was REVERSED in reason, not
+in code. A held-out book (اللامع العزيزي, run with `--pdf`) refuted the *premise*
+that the height ceiling is what separates rules from text: on it, rules and text
+are the SAME height (rule/region-median spread exactly 1.000, not 5.1x), so the
+absolute ceiling alone would classify 581 of 1,384 bands as rules. The shipped
+five-guard predicate classifies 1. Every fraction window measured below is still
+factually correct for عمود النسب — but the reason `RULE_MAX_HEIGHT_PX` stays
+absolute is NOT "no fraction is computable." It is that the ceiling is a weak
+necessary condition, and the two RATIO guards added with the rule-dropping fix
+(RULE_INK_EXTENT_RATIO, RULE_MAX_BAND_RATIO) are the real discriminator — and
+they are already scale-free, so there was never a portability gap to close.
+See plans/023-lamae-held-out-book/plan.md Phase 3. The measurement below is
+preserved as the record for the old book.
+
 WHAT THIS IS AND WHAT IT FOUND
 
 `segment_text_rows.is_obvious_horizontal_rule()` decides whether a detected band
@@ -81,7 +95,11 @@ measures them too rather than assuming them:
 
 So the shipped state is unchanged: `RULE_MAX_HEIGHT_PX` stays an absolute,
 DPI-scaled constant, and Task A2's "measure the separation on a sample before
-trusting the constants" stays the guardrail for a new source.
+trusting the constants" stays the guardrail for a new source. **That guardrail
+was later exercised**: see the UPDATE block at the top of this docstring and
+plan 023 Phase 3 — a new source arrived, the ratio guards carried the
+discrimination, and the ceiling's role was corrected to a weak necessary
+condition.
 
 HOW IT RUNS
 
@@ -89,9 +107,10 @@ HOW IT RUNS
      page pipeline on every band of every page, with the band list withheld so
      the detector takes its absolute-ceiling path - byte-identical to the
      shipped corpus by construction. No second copy of the rule is involved.
-  2. Faithfulness self-check: a reimplementation of the predicate with an
-     explicit `ceiling` parameter is asserted to agree with the real detector on
-     every band at ceiling = RULE_MAX_HEIGHT_PX. Only after that passes are the
+  2. Faithfulness self-check: a reimplementation of the shipped five-guard
+     predicate (with an explicit `ceiling` parameter) is asserted to agree with
+     the real detector on every band at ceiling = RULE_MAX_HEIGHT_PX. Only
+     after that passes are the
      experimental ceilings' verdicts trustworthy.
   3. Experimental arms: the same predicate under candidate scale-relative
      ceilings, swept over denominator x fraction. Each is compared to the

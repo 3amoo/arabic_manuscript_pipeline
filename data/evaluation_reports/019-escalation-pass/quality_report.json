@@ -1,7 +1,7 @@
 {
   "document": "عمود النسب نسخة 2",
   "note": "Distance to a working benchmark (Constitution VI), not absolute truth.",
-  "generated_at": "2026-09-21T16:42:36.356220+00:00",
+  "generated_at": "2026-10-14T04:22:34.380218+00:00",
   "gt_source": "data/ground_truth/عمود النسب/عمود_النسب.clean.md",
   "pages_total": 113,
   "pages_evaluated": 45,
@@ -12,19 +12,34 @@
   "pages_out_of_scope": 45,
   "pages_prose_only": 23,
   "verses_evaluated": 613,
-  "weighted_cer": 0.23700140702202152,
-  "weighted_wer": 0.5979622515450141,
+  "weighted_cer": 0.23687052125257682,
+  "weighted_wer": 0.5972941372974778,
   "diacritics_total": {
     "correct": 60,
-    "missing": 13,
+    "missing": 14,
     "wrong": 148,
     "extra": 5,
-    "total_gt": 221,
-    "accuracy": 0.8313,
+    "total_gt": 222,
+    "accuracy": 0.83,
     "gt_density": 0.6646,
-    "out_density": 0.5525,
-    "loss_pct": 16.9,
+    "out_density": 0.5516,
+    "loss_pct": 17.0,
     "note": ""
+  },
+  "der_total": {
+    "base_cer": 0.2708,
+    "der": 0.3581,
+    "diacritic_accuracy": 0.6419,
+    "positions": 11737,
+    "pages_scored": 45,
+    "note": "DER is computed only over letters both sides agree on, so a base-letter misread is never also charged as a diacritic error. base_cer is CER with all diacritics stripped. The `all` pool includes low-confidence and recovered pages; `matched_only` is the clean-denominator figure and matches scripts/measure_der.py exactly. See docs/AGENTS.md §12 (spec 011)."
+  },
+  "der_matched_only": {
+    "base_cer": 0.1871,
+    "der": 0.3425,
+    "diacritic_accuracy": 0.6575,
+    "positions": 7564,
+    "pages_scored": 26
   },
   "hallucination_total": 117,
   "worst_pages": [
@@ -51,7 +66,14 @@
       "hallucination_count": 10,
       "ref_chars": 780,
       "ref_words": 159,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.7396,
+        "der": 0.5529,
+        "positions": 85,
+        "correct": 38,
+        "errors": 47
+      }
     },
     {
       "page": 28,
@@ -76,23 +98,30 @@
       "hallucination_count": 0,
       "ref_chars": 497,
       "ref_words": 98,
-      "status": "count_mismatch"
+      "status": "count_mismatch",
+      "der_metrics": {
+        "base_cer": 0.759,
+        "der": 0.5208,
+        "positions": 48,
+        "correct": 23,
+        "errors": 25
+      }
     },
     {
       "page": 38,
       "recovered": false,
-      "cer": 0.46325878594249204,
-      "wer": 0.773109243697479,
+      "cer": 0.46166134185303515,
+      "wer": 0.7647058823529411,
       "diacritics": {
         "correct": 3,
         "missing": 2,
         "wrong": 5,
         "extra": 0,
         "gt_density": 0.7179,
-        "out_density": 0.5678,
+        "out_density": 0.5631,
         "total_gt": 10,
-        "accuracy": 0.7908,
-        "loss_pct": 20.9,
+        "accuracy": 0.7843,
+        "loss_pct": 21.6,
         "note": "accuracy = density ratio (marks/base letter). Per-word counts are a lower bound on exactly-base-matched words only."
       },
       "gt_verses_count": 13,
@@ -101,7 +130,14 @@
       "hallucination_count": 9,
       "ref_chars": 626,
       "ref_words": 119,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.5292,
+        "der": 0.4469,
+        "positions": 179,
+        "correct": 99,
+        "errors": 80
+      }
     },
     {
       "page": 65,
@@ -114,10 +150,10 @@
         "wrong": 7,
         "extra": 0,
         "gt_density": 0.6813,
-        "out_density": 0.5712,
+        "out_density": 0.5673,
         "total_gt": 12,
-        "accuracy": 0.8383,
-        "loss_pct": 16.2,
+        "accuracy": 0.8326,
+        "loss_pct": 16.7,
         "note": "accuracy = density ratio (marks/base letter). Per-word counts are a lower bound on exactly-base-matched words only."
       },
       "gt_verses_count": 15,
@@ -126,7 +162,14 @@
       "hallucination_count": 6,
       "ref_chars": 738,
       "ref_words": 148,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.4841,
+        "der": 0.4272,
+        "positions": 206,
+        "correct": 118,
+        "errors": 88
+      }
     },
     {
       "page": 67,
@@ -151,7 +194,14 @@
       "hallucination_count": 13,
       "ref_chars": 752,
       "ref_words": 148,
-      "status": "unmatched"
+      "status": "unmatched",
+      "der_metrics": {
+        "base_cer": 0.5856,
+        "der": 0.4472,
+        "positions": 161,
+        "correct": 89,
+        "errors": 72
+      }
     },
     {
       "page": 40,
@@ -176,7 +226,14 @@
       "hallucination_count": 0,
       "ref_chars": 497,
       "ref_words": 99,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.6137,
+        "der": 0.569,
+        "positions": 58,
+        "correct": 25,
+        "errors": 33
+      }
     },
     {
       "page": 39,
@@ -201,7 +258,14 @@
       "hallucination_count": 6,
       "ref_chars": 729,
       "ref_words": 144,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.4369,
+        "der": 0.4865,
+        "positions": 185,
+        "correct": 95,
+        "errors": 90
+      }
     },
     {
       "page": 43,
@@ -226,7 +290,14 @@
       "hallucination_count": 8,
       "ref_chars": 791,
       "ref_words": 156,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.4868,
+        "der": 0.3734,
+        "positions": 233,
+        "correct": 146,
+        "errors": 87
+      }
     },
     {
       "page": 32,
@@ -251,7 +322,14 @@
       "hallucination_count": 5,
       "ref_chars": 648,
       "ref_words": 128,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.3852,
+        "der": 0.3354,
+        "positions": 161,
+        "correct": 107,
+        "errors": 54
+      }
     },
     {
       "page": 59,
@@ -276,7 +354,14 @@
       "hallucination_count": 13,
       "ref_chars": 644,
       "ref_words": 128,
-      "status": "unmatched"
+      "status": "unmatched",
+      "der_metrics": {
+        "base_cer": 0.3498,
+        "der": 0.4341,
+        "positions": 182,
+        "correct": 103,
+        "errors": 79
+      }
     }
   ],
   "best_pages": [
@@ -303,7 +388,14 @@
       "hallucination_count": 0,
       "ref_chars": 558,
       "ref_words": 105,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.0926,
+        "der": 0.3367,
+        "positions": 300,
+        "correct": 199,
+        "errors": 101
+      }
     },
     {
       "page": 24,
@@ -328,7 +420,14 @@
       "hallucination_count": 0,
       "ref_chars": 817,
       "ref_words": 169,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1485,
+        "der": 0.2701,
+        "positions": 422,
+        "correct": 308,
+        "errors": 114
+      }
     },
     {
       "page": 23,
@@ -353,7 +452,14 @@
       "hallucination_count": 0,
       "ref_chars": 582,
       "ref_words": 112,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1084,
+        "der": 0.413,
+        "positions": 322,
+        "correct": 189,
+        "errors": 133
+      }
     },
     {
       "page": 25,
@@ -378,7 +484,14 @@
       "hallucination_count": 0,
       "ref_chars": 643,
       "ref_words": 126,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1142,
+        "der": 0.3079,
+        "positions": 341,
+        "correct": 236,
+        "errors": 105
+      }
     },
     {
       "page": 54,
@@ -403,7 +516,14 @@
       "hallucination_count": 1,
       "ref_chars": 547,
       "ref_words": 106,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1324,
+        "der": 0.2803,
+        "positions": 314,
+        "correct": 226,
+        "errors": 88
+      }
     }
   ],
   "pages": [
@@ -694,7 +814,14 @@
       "hallucination_count": 0,
       "ref_chars": 582,
       "ref_words": 112,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1084,
+        "der": 0.413,
+        "positions": 322,
+        "correct": 189,
+        "errors": 133
+      }
     },
     {
       "page": 24,
@@ -719,7 +846,14 @@
       "hallucination_count": 0,
       "ref_chars": 817,
       "ref_words": 169,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1485,
+        "der": 0.2701,
+        "positions": 422,
+        "correct": 308,
+        "errors": 114
+      }
     },
     {
       "page": 25,
@@ -744,7 +878,14 @@
       "hallucination_count": 0,
       "ref_chars": 643,
       "ref_words": 126,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1142,
+        "der": 0.3079,
+        "positions": 341,
+        "correct": 236,
+        "errors": 105
+      }
     },
     {
       "page": 26,
@@ -769,7 +910,14 @@
       "hallucination_count": 0,
       "ref_chars": 650,
       "ref_words": 129,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1711,
+        "der": 0.2643,
+        "positions": 280,
+        "correct": 206,
+        "errors": 74
+      }
     },
     {
       "page": 27,
@@ -794,7 +942,14 @@
       "hallucination_count": 3,
       "ref_chars": 736,
       "ref_words": 143,
-      "status": "count_mismatch"
+      "status": "count_mismatch",
+      "der_metrics": {
+        "base_cer": 0.2378,
+        "der": 0.3865,
+        "positions": 163,
+        "correct": 100,
+        "errors": 63
+      }
     },
     {
       "page": 28,
@@ -819,7 +974,14 @@
       "hallucination_count": 0,
       "ref_chars": 497,
       "ref_words": 98,
-      "status": "count_mismatch"
+      "status": "count_mismatch",
+      "der_metrics": {
+        "base_cer": 0.759,
+        "der": 0.5208,
+        "positions": 48,
+        "correct": 23,
+        "errors": 25
+      }
     },
     {
       "page": 29,
@@ -844,7 +1006,14 @@
       "hallucination_count": 0,
       "ref_chars": 651,
       "ref_words": 122,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1577,
+        "der": 0.2866,
+        "positions": 314,
+        "correct": 224,
+        "errors": 90
+      }
     },
     {
       "page": 30,
@@ -869,7 +1038,14 @@
       "hallucination_count": 3,
       "ref_chars": 675,
       "ref_words": 132,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.2749,
+        "der": 0.3629,
+        "positions": 259,
+        "correct": 165,
+        "errors": 94
+      }
     },
     {
       "page": 31,
@@ -894,7 +1070,14 @@
       "hallucination_count": 3,
       "ref_chars": 612,
       "ref_words": 119,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1628,
+        "der": 0.3656,
+        "positions": 279,
+        "correct": 177,
+        "errors": 102
+      }
     },
     {
       "page": 32,
@@ -919,7 +1102,14 @@
       "hallucination_count": 5,
       "ref_chars": 648,
       "ref_words": 128,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.3852,
+        "der": 0.3354,
+        "positions": 161,
+        "correct": 107,
+        "errors": 54
+      }
     },
     {
       "page": 33,
@@ -944,7 +1134,14 @@
       "hallucination_count": 1,
       "ref_chars": 780,
       "ref_words": 154,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.1858,
+        "der": 0.3441,
+        "positions": 311,
+        "correct": 204,
+        "errors": 107
+      }
     },
     {
       "page": 34,
@@ -969,7 +1166,14 @@
       "hallucination_count": 0,
       "ref_chars": 640,
       "ref_words": 126,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1831,
+        "der": 0.3705,
+        "positions": 224,
+        "correct": 141,
+        "errors": 83
+      }
     },
     {
       "page": 35,
@@ -994,7 +1198,14 @@
       "hallucination_count": 0,
       "ref_chars": 585,
       "ref_words": 111,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1483,
+        "der": 0.3645,
+        "positions": 203,
+        "correct": 129,
+        "errors": 74
+      }
     },
     {
       "page": 36,
@@ -1007,10 +1218,10 @@
         "wrong": 4,
         "extra": 0,
         "gt_density": 0.683,
-        "out_density": 0.5759,
+        "out_density": 0.5717,
         "total_gt": 6,
-        "accuracy": 0.8433,
-        "loss_pct": 15.7,
+        "accuracy": 0.8371,
+        "loss_pct": 16.3,
         "note": "accuracy = density ratio (marks/base letter). Per-word counts are a lower bound on exactly-base-matched words only."
       },
       "gt_verses_count": 14,
@@ -1019,7 +1230,14 @@
       "hallucination_count": 0,
       "ref_chars": 700,
       "ref_words": 145,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1463,
+        "der": 0.3097,
+        "positions": 268,
+        "correct": 185,
+        "errors": 83
+      }
     },
     {
       "page": 37,
@@ -1044,23 +1262,30 @@
       "hallucination_count": 0,
       "ref_chars": 677,
       "ref_words": 132,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.17,
+        "der": 0.3668,
+        "positions": 289,
+        "correct": 183,
+        "errors": 106
+      }
     },
     {
       "page": 38,
       "recovered": false,
-      "cer": 0.46325878594249204,
-      "wer": 0.773109243697479,
+      "cer": 0.46166134185303515,
+      "wer": 0.7647058823529411,
       "diacritics": {
         "correct": 3,
         "missing": 2,
         "wrong": 5,
         "extra": 0,
         "gt_density": 0.7179,
-        "out_density": 0.5678,
+        "out_density": 0.5631,
         "total_gt": 10,
-        "accuracy": 0.7908,
-        "loss_pct": 20.9,
+        "accuracy": 0.7843,
+        "loss_pct": 21.6,
         "note": "accuracy = density ratio (marks/base letter). Per-word counts are a lower bound on exactly-base-matched words only."
       },
       "gt_verses_count": 13,
@@ -1069,7 +1294,14 @@
       "hallucination_count": 9,
       "ref_chars": 626,
       "ref_words": 119,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.5292,
+        "der": 0.4469,
+        "positions": 179,
+        "correct": 99,
+        "errors": 80
+      }
     },
     {
       "page": 39,
@@ -1094,7 +1326,14 @@
       "hallucination_count": 6,
       "ref_chars": 729,
       "ref_words": 144,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.4369,
+        "der": 0.4865,
+        "positions": 185,
+        "correct": 95,
+        "errors": 90
+      }
     },
     {
       "page": 40,
@@ -1119,7 +1358,14 @@
       "hallucination_count": 0,
       "ref_chars": 497,
       "ref_words": 99,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.6137,
+        "der": 0.569,
+        "positions": 58,
+        "correct": 25,
+        "errors": 33
+      }
     },
     {
       "page": 41,
@@ -1144,7 +1390,14 @@
       "hallucination_count": 3,
       "ref_chars": 761,
       "ref_words": 150,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.2161,
+        "der": 0.3294,
+        "positions": 340,
+        "correct": 228,
+        "errors": 112
+      }
     },
     {
       "page": 42,
@@ -1169,7 +1422,14 @@
       "hallucination_count": 1,
       "ref_chars": 791,
       "ref_words": 155,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1586,
+        "der": 0.3835,
+        "positions": 399,
+        "correct": 246,
+        "errors": 153
+      }
     },
     {
       "page": 43,
@@ -1194,7 +1454,14 @@
       "hallucination_count": 8,
       "ref_chars": 791,
       "ref_words": 156,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.4868,
+        "der": 0.3734,
+        "positions": 233,
+        "correct": 146,
+        "errors": 87
+      }
     },
     {
       "page": 44,
@@ -1219,7 +1486,14 @@
       "hallucination_count": 1,
       "ref_chars": 683,
       "ref_words": 135,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.2729,
+        "der": 0.416,
+        "positions": 238,
+        "correct": 139,
+        "errors": 99
+      }
     },
     {
       "page": 45,
@@ -1244,7 +1518,14 @@
       "hallucination_count": 0,
       "ref_chars": 592,
       "ref_words": 118,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1381,
+        "der": 0.3702,
+        "positions": 289,
+        "correct": 182,
+        "errors": 107
+      }
     },
     {
       "page": 46,
@@ -1269,7 +1550,14 @@
       "hallucination_count": 0,
       "ref_chars": 691,
       "ref_words": 133,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1321,
+        "der": 0.3342,
+        "positions": 365,
+        "correct": 243,
+        "errors": 122
+      }
     },
     {
       "page": 47,
@@ -1294,23 +1582,30 @@
       "hallucination_count": 1,
       "ref_chars": 630,
       "ref_words": 123,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.231,
+        "der": 0.3407,
+        "positions": 270,
+        "correct": 178,
+        "errors": 92
+      }
     },
     {
       "page": 48,
       "recovered": false,
-      "cer": 0.31532846715328466,
-      "wer": 0.7175572519083969,
+      "cer": 0.31386861313868614,
+      "wer": 0.7099236641221374,
       "diacritics": {
         "correct": 0,
         "missing": 0,
         "wrong": 0,
         "extra": 0,
         "gt_density": 0.6967,
-        "out_density": 0.5321,
+        "out_density": 0.5261,
         "total_gt": 0,
-        "accuracy": 0.7638,
-        "loss_pct": 23.6,
+        "accuracy": 0.7552,
+        "loss_pct": 24.5,
         "note": "accuracy = density ratio (marks/base letter). Per-word counts are a lower bound on exactly-base-matched words only."
       },
       "gt_verses_count": 14,
@@ -1319,23 +1614,30 @@
       "hallucination_count": 4,
       "ref_chars": 685,
       "ref_words": 131,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.3193,
+        "der": 0.3941,
+        "positions": 236,
+        "correct": 143,
+        "errors": 93
+      }
     },
     {
       "page": 49,
       "recovered": false,
-      "cer": 0.23676470588235293,
-      "wer": 0.6131386861313869,
+      "cer": 0.23529411764705882,
+      "wer": 0.6058394160583942,
       "diacritics": {
         "correct": 2,
         "missing": 0,
         "wrong": 4,
         "extra": 0,
         "gt_density": 0.6801,
-        "out_density": 0.6099,
+        "out_density": 0.6031,
         "total_gt": 6,
-        "accuracy": 0.8968,
-        "loss_pct": 10.3,
+        "accuracy": 0.8869,
+        "loss_pct": 11.3,
         "note": "accuracy = density ratio (marks/base letter). Per-word counts are a lower bound on exactly-base-matched words only."
       },
       "gt_verses_count": 14,
@@ -1344,23 +1646,30 @@
       "hallucination_count": 2,
       "ref_chars": 680,
       "ref_words": 137,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.2388,
+        "der": 0.3921,
+        "positions": 278,
+        "correct": 169,
+        "errors": 109
+      }
     },
     {
       "page": 50,
       "recovered": false,
-      "cer": 0.22061191626409019,
-      "wer": 0.6129032258064516,
+      "cer": 0.21900161030595813,
+      "wer": 0.6048387096774194,
       "diacritics": {
         "correct": 1,
-        "missing": 0,
+        "missing": 1,
         "wrong": 0,
         "extra": 1,
         "gt_density": 0.6921,
-        "out_density": 0.6282,
-        "total_gt": 1,
-        "accuracy": 0.9077,
-        "loss_pct": 9.2,
+        "out_density": 0.6188,
+        "total_gt": 2,
+        "accuracy": 0.8941,
+        "loss_pct": 10.6,
         "note": "accuracy = density ratio (marks/base letter). Per-word counts are a lower bound on exactly-base-matched words only."
       },
       "gt_verses_count": 13,
@@ -1369,7 +1678,14 @@
       "hallucination_count": 1,
       "ref_chars": 621,
       "ref_words": 124,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.2214,
+        "der": 0.3574,
+        "positions": 291,
+        "correct": 187,
+        "errors": 104
+      }
     },
     {
       "page": 51,
@@ -1394,7 +1710,14 @@
       "hallucination_count": 0,
       "ref_chars": 785,
       "ref_words": 147,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1507,
+        "der": 0.3092,
+        "positions": 401,
+        "correct": 277,
+        "errors": 124
+      }
     },
     {
       "page": 52,
@@ -1419,7 +1742,14 @@
       "hallucination_count": 1,
       "ref_chars": 647,
       "ref_words": 120,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.2046,
+        "der": 0.3004,
+        "positions": 283,
+        "correct": 198,
+        "errors": 85
+      }
     },
     {
       "page": 53,
@@ -1432,10 +1762,10 @@
         "wrong": 8,
         "extra": 0,
         "gt_density": 0.6904,
-        "out_density": 0.5551,
+        "out_density": 0.5508,
         "total_gt": 12,
-        "accuracy": 0.804,
-        "loss_pct": 19.6,
+        "accuracy": 0.7977,
+        "loss_pct": 20.2,
         "note": "accuracy = density ratio (marks/base letter). Per-word counts are a lower bound on exactly-base-matched words only."
       },
       "gt_verses_count": 13,
@@ -1444,7 +1774,14 @@
       "hallucination_count": 4,
       "ref_chars": 659,
       "ref_words": 130,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.3153,
+        "der": 0.3644,
+        "positions": 236,
+        "correct": 150,
+        "errors": 86
+      }
     },
     {
       "page": 54,
@@ -1469,7 +1806,14 @@
       "hallucination_count": 1,
       "ref_chars": 547,
       "ref_words": 106,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1324,
+        "der": 0.2803,
+        "positions": 314,
+        "correct": 226,
+        "errors": 88
+      }
     },
     {
       "page": 55,
@@ -1494,7 +1838,14 @@
       "hallucination_count": 0,
       "ref_chars": 558,
       "ref_words": 105,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.0926,
+        "der": 0.3367,
+        "positions": 300,
+        "correct": 199,
+        "errors": 101
+      }
     },
     {
       "page": 56,
@@ -1519,7 +1870,14 @@
       "hallucination_count": 0,
       "ref_chars": 430,
       "ref_words": 82,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1644,
+        "der": 0.3158,
+        "positions": 228,
+        "correct": 156,
+        "errors": 72
+      }
     },
     {
       "page": 57,
@@ -1544,7 +1902,14 @@
       "hallucination_count": 1,
       "ref_chars": 602,
       "ref_words": 120,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.1554,
+        "der": 0.3723,
+        "positions": 274,
+        "correct": 172,
+        "errors": 102
+      }
     },
     {
       "page": 58,
@@ -1569,7 +1934,14 @@
       "hallucination_count": 2,
       "ref_chars": 809,
       "ref_words": 154,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.169,
+        "der": 0.3621,
+        "positions": 348,
+        "correct": 222,
+        "errors": 126
+      }
     },
     {
       "page": 59,
@@ -1594,7 +1966,14 @@
       "hallucination_count": 13,
       "ref_chars": 644,
       "ref_words": 128,
-      "status": "unmatched"
+      "status": "unmatched",
+      "der_metrics": {
+        "base_cer": 0.3498,
+        "der": 0.4341,
+        "positions": 182,
+        "correct": 103,
+        "errors": 79
+      }
     },
     {
       "page": 60,
@@ -1619,7 +1998,14 @@
       "hallucination_count": 10,
       "ref_chars": 780,
       "ref_words": 159,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.7396,
+        "der": 0.5529,
+        "positions": 85,
+        "correct": 38,
+        "errors": 47
+      }
     },
     {
       "page": 61,
@@ -1644,7 +2030,14 @@
       "hallucination_count": 2,
       "ref_chars": 686,
       "ref_words": 140,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.2182,
+        "der": 0.3993,
+        "positions": 273,
+        "correct": 164,
+        "errors": 109
+      }
     },
     {
       "page": 62,
@@ -1669,7 +2062,14 @@
       "hallucination_count": 1,
       "ref_chars": 736,
       "ref_words": 150,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.1792,
+        "der": 0.2982,
+        "positions": 342,
+        "correct": 240,
+        "errors": 102
+      }
     },
     {
       "page": 63,
@@ -1694,7 +2094,14 @@
       "hallucination_count": 6,
       "ref_chars": 731,
       "ref_words": 141,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.3788,
+        "der": 0.3898,
+        "positions": 295,
+        "correct": 180,
+        "errors": 115
+      }
     },
     {
       "page": 64,
@@ -1719,7 +2126,14 @@
       "hallucination_count": 4,
       "ref_chars": 802,
       "ref_words": 154,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.2986,
+        "der": 0.4106,
+        "positions": 302,
+        "correct": 178,
+        "errors": 124
+      }
     },
     {
       "page": 65,
@@ -1732,10 +2146,10 @@
         "wrong": 7,
         "extra": 0,
         "gt_density": 0.6813,
-        "out_density": 0.5712,
+        "out_density": 0.5673,
         "total_gt": 12,
-        "accuracy": 0.8383,
-        "loss_pct": 16.2,
+        "accuracy": 0.8326,
+        "loss_pct": 16.7,
         "note": "accuracy = density ratio (marks/base letter). Per-word counts are a lower bound on exactly-base-matched words only."
       },
       "gt_verses_count": 15,
@@ -1744,7 +2158,14 @@
       "hallucination_count": 6,
       "ref_chars": 738,
       "ref_words": 148,
-      "status": "low_confidence"
+      "status": "low_confidence",
+      "der_metrics": {
+        "base_cer": 0.4841,
+        "der": 0.4272,
+        "positions": 206,
+        "correct": 118,
+        "errors": 88
+      }
     },
     {
       "page": 66,
@@ -1769,7 +2190,14 @@
       "hallucination_count": 2,
       "ref_chars": 613,
       "ref_words": 119,
-      "status": "matched"
+      "status": "matched",
+      "der_metrics": {
+        "base_cer": 0.2176,
+        "der": 0.3626,
+        "positions": 262,
+        "correct": 167,
+        "errors": 95
+      }
     },
     {
       "page": 67,
@@ -1794,7 +2222,14 @@
       "hallucination_count": 13,
       "ref_chars": 752,
       "ref_words": 148,
-      "status": "unmatched"
+      "status": "unmatched",
+      "der_metrics": {
+        "base_cer": 0.5856,
+        "der": 0.4472,
+        "positions": 161,
+        "correct": 89,
+        "errors": 72
+      }
     },
     {
       "page": 68,

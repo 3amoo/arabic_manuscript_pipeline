@@ -1,8 +1,9 @@
 # Spec corpus — index
 
-22 specs. Each directory under `specs/` holds a spec-kit record: `spec.md` (goal and
+23 specs. Each directory under `specs/` holds a spec-kit record: `spec.md` (goal and
 findings), `plan.md`, `research.md`, `tasks.md`. Specs 001–017 are full records; **018–022
-are stubs** (see below).
+are stubs** (see below). **023 lives under `plans/023-lamae-held-out-book/`** — its
+`plan.md` is the full record (no spec-kit stub).
 
 **The most useful thing in this index is the supersession column.** Several specs reverse an
 earlier spec's headline conclusion, and the reversal is the project's real result — reading
@@ -32,6 +33,7 @@ the corpus in order without it will mislead you.
 | 020 | second-quota-round | +0.9pp, then cancelled | 25.9% → 25.0%; accept-improvement-only, 3 reverts |
 | 021 | tounicode-repair | fixed | anagram corruption in the CMap; 83 repairs, 8 pages better / 0 worse |
 | 022 | closure-measurements | closed by measurement | the last "planned" items measured and dismissed |
+| 023 | lamae-held-out-book | done — 3 reversals | **reverses Phase A task 3's premise**: the height ceiling is not the rule discriminator on small-type books; also fixes a 28%-line-drop bug, adds an inline-verse detector (0/6531 → 154/169), and establishes the first held-out baseline (CER 0.512) |
 
 ## Why 018–022 are stubs
 
