@@ -74,3 +74,11 @@ verify_batch2.py
 verify_retracted.py
 verify_retracted2.py
 logs/fallback_events.jsonl
+
+# Local agent tooling (not needed on GitHub) - untracked 2026-10-14, kept on disk
+.claude/
+.opencode/
+.agents/
+.specify/
+.zcode/
+skills-lock.json
