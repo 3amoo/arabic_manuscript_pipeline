@@ -26,6 +26,7 @@ import inspect
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -271,6 +272,31 @@ class TestDetectColumnsReachable(unittest.TestCase):
         # One continuous ink block: no middle-third gutter.
         one_col = np.full((60, 300), 255, dtype=np.uint8)
         self.assertEqual(detect(one_col, (0, 0, 300, 60)), 1)
+
+
+@_NO_MAIN
+class TestNoVisionFlag(unittest.TestCase):
+    """--no-vision is what makes verify_all.py's smoke deterministic: it
+    forces the vision fallback off before any external call, so a page-range
+    run cannot be perturbed by non-deterministic backends (AGENTS.md §4.13,
+    §12). Guards the flag's parsing, its default, and its wiring in main()."""
+
+    def test_flag_defaults_off(self):
+        with mock.patch.object(sys, "argv", ["main.py"]):
+            args = main_mod.parse_args()
+        self.assertFalse(args.no_vision)
+
+    def test_flag_sets_attr(self):
+        with mock.patch.object(sys, "argv", ["main.py", "--no-vision"]):
+            args = main_mod.parse_args()
+        self.assertTrue(args.no_vision)
+
+    def test_main_forces_vision_off_when_flag_set(self):
+        src = inspect.getsource(main_mod.main)
+        self.assertIn("no_vision", src,
+                      "--no-vision is no longer read in main()")
+        self.assertIn("vision_engine.enabled = False", src,
+                      "the flag no longer disables the vision engine")
 
 
 if __name__ == "__main__":

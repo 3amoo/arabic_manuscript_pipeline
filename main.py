@@ -1291,6 +1291,18 @@ def parse_args():
              "one range that was deliberately regenerated after the venv "
              "rebuild and does reproduce.",
     )
+    parser.add_argument(
+        "--no-vision", action="store_true",
+        help="Force vision fallback OFF for this run, regardless of "
+             "vision_fallback.enabled in settings.yaml. Vision backends "
+             "are external and non-deterministic (AGENTS.md §4.13): the "
+             "same page escalates to different text on each run, so a "
+             "run that must reproduce stored bytes (verify_all.py's smoke "
+             "check) is not hermetic while escalations are live. This flag "
+             "makes such a run deterministic and independent of external "
+             "API availability; it never changes a page that has no "
+             "escalations.",
+    )
     return parser.parse_args()
 
 
@@ -1509,6 +1521,15 @@ def main():
     # must be explicitly set to true in settings.yaml) so nothing calls an
     # external API, spends quota, or requires an API key unless you opt in.
     vision_engine = VisionFallbackEngine(config.get('vision_fallback', {}))
+    if getattr(args, "no_vision", False):
+        # --no-vision: deterministic, hermetic runs (verify_all.py's smoke).
+        # External vision backends are non-deterministic, so leaving them on
+        # makes a "reproduce the stored bytes" run both flaky and dependent
+        # on live API quota (AGENTS.md §4.13). Pages with no escalations are
+        # unaffected.
+        if vision_engine.enabled:
+            logger.info("Vision fallback DISABLED by --no-vision (deterministic run).")
+        vision_engine.enabled = False
 
     # Surya line detection is OFF by default too
     # (config['layout_detection']['line_detector'] must be explicitly set

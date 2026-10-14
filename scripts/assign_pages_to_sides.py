@@ -2,6 +2,12 @@
 """
 Assign each OCR page to its folio side by containment (plan 023, Phase 1.2).
 
+RETIRED by plan 024, Phase 1 (do not run for new measurements; the page-level
+harness `scripts/score_lamae_pages.py` locates each page directly in the
+canonical GT stream and needs no page→side assignment at all). Kept,
+unmodified, because its containment measurement is the evidence that
+justified moving to per-page location in the first place.
+
 The staircase from monotone argmax gives fuzzy boundaries: it stretches some
 sides over 12 pages and leaves gaps, because at ~42% CER a page's best segment
 is often a neighbour. What is NOT fuzzy is containment — a page either carries

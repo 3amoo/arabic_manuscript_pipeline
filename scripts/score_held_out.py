@@ -2,6 +2,17 @@
 """
 First held-out measurement for اللامع العزيزي (plan 023, Phase 1.4).
 
+RETIRED by plan 024, Phase 1 (do not run for new measurements; use
+`scripts/score_lamae_pages.py`). Kept, unmodified, because its numbers are
+the plan 023 baseline the new harness had to reconcile against. What it
+measures is a folio-side CER against concatenated OCR; what it cannot do
+is attribute an error to a page, which is the unit every A/B decision in
+plan 024 needs — and its staircase-based page→side assignment was
+impossible at this CER (that is why `assign_pages_to_sides.py` exists and
+is retired for the same reason). The reconciliation of its ~0.42-0.62
+side-level rates against the page-level harness lives in
+`scripts/score_lamae_pages.py`'s module docstring.
+
 Scores OCR against the Shamela ground truth at the FOLIO-SIDE level, not the
 page level. A folio side spans roughly three PDF pages in this scan, so
 splitting the GT at a page boundary would be arbitrary and would score every

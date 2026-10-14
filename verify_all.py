@@ -155,7 +155,23 @@ PY = str(REPO / "myenv" / "bin" / "python")
 #    are new files, not modifications: عمود النسب's 113 pages reproduce
 #    byte-identically (4f5d32e171e60e81f6d3, verified by re-run, 100% cache
 #    hits) and لمعة النسب pages 1-3 are unchanged.
-INVARIANT = "8fc303cd702fa37e9e25"
+# 2026-10-14 re-pin #5 (plan 024 Phase 1). Two causes, both intentional:
+#  a) The 54 اللامع العزيزي ground-truth page files were rebuilt as located
+#     spans of the canonical Shamela stream (scripts/build_page_gt.py now
+#     sources its offsets from scripts/score_lamae_pages.py) so the held-out
+#     reference matches the scorer's coordinate contract. The old files were a
+#     fixed 611-char window per page, which the harness proved cannot be the
+#     page's true reference (OCR/GT length ratio runs 0.66x-2.4x; the window
+#     was a geometry estimate, not the page's content).
+#  b) The smoke now runs with --no-vision. main.py --start/--end processes
+#     EVERY pdf in data/input, and اللامع pages 24-25 have lines below the
+#     0.55 confidence threshold, so the smoke was re-escalating them to
+#     different gemini/qwen_vl text on every run (vision is non-deterministic,
+#     AGENTS.md §4.13) and moving this invariant whenever a backend was alive.
+#     --no-vision makes the smoke hermetic and reproducible; عمود النسب pages
+#     24-26 never escalate, so their byte-identical reproduction is unaffected.
+# Pages outside اللامع are untouched; عمود النسب's 113 pages reproduce exactly.
+INVARIANT = "9011be9b6d943eca980f"
 TEST_MODULES = [
     "tests.test_gt_alignment",
     "tests.test_diacritic_metrics",
@@ -204,6 +220,12 @@ TEST_MODULES = [
     # the marker out of the CER benchmark. Drop the '#' and 69 pages of
     # marker text silently count as OCR errors.
     "tests.test_unresolved_marker",
+    # plan 024 Phase 1: the held-out scorer for اللامع العزيزي
+    # (scripts/score_lamae_pages.py + scripts/lamae_gt_stream.py). Pins
+    # determinism, synthetic offset recovery, the monotonicity guard and
+    # that CER is distance over the REFERENCE length (the project
+    # convention) - not over the OCR hypothesis, which plan 023 used.
+    "tests.test_score_lamae_pages",
     # main.py's per-line escalation routing and the §4.13 acceptance
     # policy, exercised on synthetic inputs instead of the 2-minute
     # --start 24 --end 26 smoke run. Also pins that _run_page_once still
@@ -221,7 +243,15 @@ TEST_MODULES = [
     # escalations log it is supposed to only read.
     "tests.test_escalation_audit",
 ]
-SMOKE_ARGS = ["--start", "24", "--end", "26", "--regenerate"]
+# --no-vision: the smoke must be HERMETIC and reproducible. Vision backends
+# are external and non-deterministic, and main.py --start/--end processes
+# EVERY pdf in data/input - so اللامع العزيزي pages 24-25 (whose lines fall
+# below the 0.55 confidence threshold) were being re-escalated to different
+# gemini/qwen_vl text on every run, moving the whole-evidence invariant each
+# time vision was alive. Disabling vision for the smoke makes it deterministic
+# and independent of API availability; عمود النسب's pages 24-26 never escalate,
+# so their byte-identical reproduction is unaffected.
+SMOKE_ARGS = ["--start", "24", "--end", "26", "--regenerate", "--no-vision"]
 DOC = "عمود النسب نسخة 2"
 ALIGNMENT = "data/evaluation_reports/008/alignment.json"
 REPORT_DIR = "data/evaluation_reports/019-escalation-pass"
