@@ -495,9 +495,15 @@ class TestDeterminismOnRealBook(unittest.TestCase):
 
     def test_drift_at_page_8_matches_the_measured_anchor_error(self):
         # Plan 024 finding 2: plan 023's anchor estimate for page 8 sits
-        # ~1,900 chars ABOVE the page's true content. The harness must
+        # ~2,000 chars ABOVE the page's true content. The harness must
         # reproduce that, sign included — if the coordinate map between
         # the two normal forms were wrong, the drift would swallow it.
+        # Values re-pinned 2026-10-14 when the held-out pages 7-60 were
+        # regenerated with current code (the stored page 8 was from a
+        # pre-inline-verse code state; see verify_all.py re-pin #6). The
+        # offset moved 3580 -> 3530: regeneration alone gave 3523, then the
+        # locator stopped sampling the guessed inline-verse separator (page 8
+        # carries three of them) for a further +7.
         from score_lamae_pages import OCR_DIR
 
         segs = load_segments(REAL_SEGMENTS)
@@ -507,9 +513,9 @@ class TestDeterminismOnRealBook(unittest.TestCase):
                                   verbose=False)
         off = located[8]["offset"]
         anchor = map_old_to_canonical(alignment, anchor_offset(8, len(stream)))
-        self.assertEqual(off, 3580)
+        self.assertEqual(off, 3530)
         self.assertLess(off - anchor, 0)
-        self.assertAlmostEqual(abs(off - anchor), 1918, delta=100)
+        self.assertAlmostEqual(abs(off - anchor), 1968, delta=100)
 
 
 class TestParseRange(unittest.TestCase):

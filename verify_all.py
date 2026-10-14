@@ -171,7 +171,22 @@ PY = str(REPO / "myenv" / "bin" / "python")
 #     --no-vision makes the smoke hermetic and reproducible; عمود النسب pages
 #     24-26 never escalate, so their byte-identical reproduction is unaffected.
 # Pages outside اللامع are untouched; عمود النسب's 113 pages reproduce exactly.
-INVARIANT = "9011be9b6d943eca980f"
+# 2026-10-14 re-pin #6 (plan 024). One intentional cause:
+#  The held-out اللامع pages 7-60 were a MOSAIC of older code states, not one
+#  reproducible corpus. Re-rendering a page at its own 200 DPI gave the same
+#  CHARACTERS but a different SET OF LINES (zero substitutions, pure whole-line
+#  insertions/deletions, deterministic across runs). Page mtimes vs git dated
+#  the drift: page_008 (16:10) predates the rule-detector fix 2c83a1c (19:33)
+#  and inline-verse 12a613d (21:49); page_029 (21:43) predates inline-verse;
+#  only pages 24-26 (rewritten by the smoke 14:25) reflected current code. So
+#  the Phase 1 harness was scoring OCR that current code no longer produces.
+#  Regenerated pages 7-60 with current code and --no-vision (hermetic, matches
+#  the smoke's determinism policy): 49 of 54 page files changed, 457 files
+#  total, 99.3% OCR-cache hits. check_benchmark() is unaffected - it scores
+#  عمود النسب's vault_corrected_text, not اللامع. Drift cause + method:
+#  docs/reproducibility.md; the DPI A/B that surfaced it lives in
+#  scripts/dpi_ab_lamae.py.
+INVARIANT = "e6882437c75e10e223d9"
 TEST_MODULES = [
     "tests.test_gt_alignment",
     "tests.test_diacritic_metrics",

@@ -144,6 +144,22 @@ their docstrings or delete them, so nobody reproduces 0.823 from the tree.
 023's table is explained; the GT page files and the harness agree in coordinate; the
 DPI question is answered at CER level. No accuracy claim is made.
 
+**Re-run note (2026-10-14, recorded in `docs/CHANGELOG.md`).** After Phase 1/2 shipped, a
+stored-vs-fresh re-render proved the held-out pages 7–60 were a **mosaic of older code
+states** (deterministic code drift, not non-determinism or DPI: page mtimes precede the
+rule-detector `2c83a1c` and inline-verse `12a613d` fixes). Per the user's decision the
+pages were **regenerated under current code** (`--no-vision`, 49/54 changed) and the
+invariant re-pinned `9011be9b6d943eca980f` → `e6882437c75e10e223d9` (re-pin #6). The
+regeneration also exposed a **real locator defect**: pages were placed independently, so a
+single coincidental 10-char window matched far away (p36 @300,240; p47 tie @1,044),
+inflating the budget past usefulness. Fix in `scripts/score_lamae_pages.py`: strip the
+geometrically-guessed ` ... ` separator before window sampling, and require **≥2 independent
+windows** for a verbatim location (single windows become no-hit/interpolated). Result:
+**zero monotonicity violations**, and the re-established Phase 1 figures are **GT 37,310 /
+OCR 66,764 / CER 1.12**, with Phase 2 unchanged in verdict (insertion/coverage-dominated,
+77.4% of distance). Step 5 (DPI A/B) is now run: at the located offset **300 DPI is best
+for both probed pages**.
+
 ### Phase 2 — The error budget
 
 With the harness, answer: **where does the 0.5 live?**

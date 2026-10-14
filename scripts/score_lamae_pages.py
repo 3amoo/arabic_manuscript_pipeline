@@ -161,6 +161,36 @@ WINDOW_STRIDE = 25            # one sampled window per ~25 OCR characters
 MAX_OCCURRENCES = 4           # votes per window: formulaic text repeats
 CLUSTER_TOL = 200             # GT chars: how close implied starts must sit
 FALLBACK_WINDOW_CHARS = 611   # plan 023's chars-per-page for pages 7-60
+# A verbatim location resting on ONE window is a coincidence, not evidence:
+# a single 10-char phrase can recur far away by chance (page 36's only
+# surviving window matched at offset 300240, ~277k chars from its true
+# position; page 25's matched 41 chars early). Such pages are treated as
+# no-hit and interpolated from their neighbours, which is both more
+# accurate and honest. Two independent windows is the floor for "located".
+MIN_LOCATED_WINDOWS = 2
+
+# The pipeline's inline-verse hemistich separator (AGENTS.md §4.9). It is
+# DRAWN into the OCR by a purely geometric guess in segment_text_rows, so
+# its count and placement are not transcribed content; the GT stream's own
+# separators (if any) sit at the real verse boundaries. Locator windows must
+# be sampled on the page's TEXT, not on this formatting overlay: leaving it
+# in both biases the "hit minus window position" start estimate (the guessed
+# separators are chars with no GT counterpart) and shifts the stride-25
+# sampling grid, which on formulaic pages left only coincidental far-away
+# hits - with current code, page 36 jumped to offset 300240 and page 47 to
+# 1044, inflating pages 35/46 spans and the whole range baseline (gt_chars
+# 343,593 instead of ~38k). Normalizing it out restores the pre-inline-verse
+# locations. Scoring still uses the full page text (separator included) as
+# the hypothesis - only the LOCATOR strips it.
+VERSE_SEPARATOR = " ... "
+
+
+def locator_text(hyp: str) -> str:
+    """The page's text with the guessed hemistich separator removed, for
+    verbatim-window location only. Collapses the whitespace the removal can
+    leave behind so the stride-25 sampling stays text-aligned."""
+    return " ".join(hyp.replace(VERSE_SEPARATOR, " ").split())
+
 
 # Plan 023 geometry, for the reconciliation column only: slide a GT window
 # the length of the OCR page inside the folio side and keep the best CER.
@@ -200,7 +230,7 @@ def locate_page(hyp: str, stream: str) -> dict:
     guaranteed to lie in (assuming the page's text is contiguous in the
     GT, which the missing-25-sides defect can break — hence advisory).
     """
-    votes = collect_votes(hyp, stream)
+    votes = collect_votes(locator_text(hyp), stream)
     if not votes:
         return {"offset": None, "method": "no_hits", "votes": 0,
                 "windows": 0, "cluster": 0, "bracket": None}
@@ -218,6 +248,10 @@ def locate_page(hyp: str, stream: str) -> dict:
             best = (key[0], key[1], i, j)
 
     _, n_votes, i, j = best
+    if best[0] < MIN_LOCATED_WINDOWS:
+        return {"offset": None, "method": "no_hits", "votes": n_votes,
+                "windows": best[0], "cluster": len(items[i:j + 1]),
+                "bracket": None}
     cluster = items[i:j + 1]
     starts = [m[0] for m in cluster]
     offset = int(round(statistics.median(starts)))
