@@ -89,7 +89,7 @@ on this scan/GT pair are content-imperfect.
 
 Measured over pages 7-60 (2026-10-14): GT 38,998 chars, OCR 65,289 chars —
 an OCR/GT length ratio of **1.67** — giving `dist/GT = 1.04` and
-`dist/OCR = 0.65`. The op split (sub 8,659 / ins 29,848 / del 3,977) shows the
+`dist/OCR = 0.65`. The op split (sub 7,793 / ins 30,491 / del 4,200) shows the
 distance is INSERTION-dominated, and the insertions are largely not recognizer
 error: the scanned edition carries a footnote/citation apparatus (page numbers,
 "الوفيات ٤٦٣", "طبقات النحويين ٤٦٦", "الفهرست ص ٨") that the Shamela
@@ -336,13 +336,13 @@ def edit_ops(ref: str, hyp: str) -> dict:
     """
     n, m = len(ref), len(hyp)
     prev = list(range(m + 1))
-    prev_i = [0] * (m + 1)
+    prev_i = list(range(m + 1))   # row 0: j insertions to build hyp[:j]
     prev_d = [0] * (m + 1)
     for i in range(1, n + 1):
         ca = ref[i - 1]
         cur = [i] + [0] * m
         cur_i = [0] * (m + 1)
-        cur_d = [0] * (m + 1)
+        cur_d = [i] + [0] * m       # column 0: i deletions to consume ref[:i]
         for j in range(1, m + 1):
             sub = prev[j - 1] + (ca != hyp[j - 1])
             dele = prev[j] + 1
@@ -363,6 +363,65 @@ def edit_ops(ref: str, hyp: str) -> dict:
     dist = prev[-1]
     subs = dist - prev_i[-1] - prev_d[-1]
     return {"dist": dist, "sub": subs, "ins": prev_i[-1], "del": prev_d[-1]}
+
+
+def edit_script(ref: str, hyp: str) -> list[tuple[str, int, int]]:
+    """
+    The minimum edit script as (tag, ref_pos, hyp_pos), with the SAME
+    substitution-preferred tie-breaking as `edit_ops`, so its replace /
+    insert / delete counts equal `edit_ops`' sub / ins / del exactly. Phase 2
+    needs positions (which OCR characters are extra) but must stay on the one
+    alignment the scorer reports; rapidfuzz's `editops` also returns a minimal
+    script, but a DIFFERENT one (measured: sub 7,461 / ins 30,657 / del 4,366
+    vs this split's 7,793 / 30,491 / 4,200 on the same pages, same distance).
+
+    `tag` is 'match' (the two characters are equal), 'replace' (the two
+    characters differ), 'delete' (ref char with no hypothesis counterpart) or
+    'insert' (hypothesis char with no reference counterpart). Emitting the
+    'match' steps too makes the whole alignment explicit — a consumer can read
+    contiguous runs of inserted text directly, instead of inferring gaps from
+    absent entries. `replace` / `insert` / `delete` counts still equal
+    `edit_ops`' sub / ins / del.
+    """
+    n, m = len(ref), len(hyp)
+    prev = list(range(m + 1))
+    back = [bytearray(m + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        ca = ref[i - 1]
+        cur = [i] + [0] * m
+        back[i][0] = 1  # nothing on the hypothesis side: a deletion
+        for j in range(1, m + 1):
+            sub = prev[j - 1] + (ca != hyp[j - 1])
+            dele = prev[j] + 1
+            ins = cur[j - 1] + 1
+            if sub <= dele and sub <= ins:
+                cur[j] = sub
+                back[i][j] = 0
+            elif dele <= ins:
+                cur[j] = dele
+                back[i][j] = 1
+            else:
+                cur[j] = ins
+                back[i][j] = 2
+        prev = cur
+
+    script: list[tuple[str, int, int]] = []
+    i, j = n, m
+    while i > 0 or j > 0:
+        direction = back[i][j] if i > 0 else 0
+        if i > 0 and j > 0 and direction == 0:
+            tag = "match" if ref[i - 1] == hyp[j - 1] else "replace"
+            script.append((tag, i - 1, j - 1))
+            i -= 1
+            j -= 1
+        elif i > 0 and (direction == 1 or j == 0):
+            script.append(("delete", i - 1, j))
+            i -= 1
+        else:
+            script.append(("insert", i, j - 1))
+            j -= 1
+    script.reverse()
+    return script
 
 
 def score_window(ref: str, hyp: str) -> dict:

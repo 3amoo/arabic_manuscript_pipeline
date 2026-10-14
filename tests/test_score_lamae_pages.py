@@ -59,6 +59,7 @@ from score_lamae_pages import (  # noqa: E402
     LAMAE_PHASE1_PAGES,
     collect_votes,
     edit_ops,
+    edit_script,
     evaluate_range,
     locate_page,
     locate_pages,
@@ -395,6 +396,46 @@ class TestScoring(unittest.TestCase):
         # one deletion
         self.assertEqual(edit_ops("كتاب", "كاب"),
                          {"dist": 1, "sub": 0, "ins": 0, "del": 1})
+
+    def test_op_classification_counts_whole_word_boundary_ops(self):
+        # Regression: the first column (all-deletions) and first row
+        # (all-insertions) must be charged to del/ins, not folded into
+        # `sub` by way of the dist - ins - del remainder.
+        self.assertEqual(edit_ops("كتاب", ""),
+                         {"dist": 4, "sub": 0, "ins": 0, "del": 4})
+        self.assertEqual(edit_ops("", "كتاب"),
+                         {"dist": 4, "sub": 0, "ins": 4, "del": 0})
+        self.assertEqual(edit_ops("abc", "xyz"),
+                         {"dist": 3, "sub": 3, "ins": 0, "del": 0})
+
+    def test_edit_script_agrees_with_edit_ops_and_is_a_complete_path(self):
+        rng = random.Random(1)
+        for _ in range(30):
+            ref = "".join(rng.choice("ابتث جحخدذرزس") for _ in range(50))
+            hyp = "".join(rng.choice("ابتث جحخدذرزس لعن") for _ in range(70))
+            ops = edit_ops(ref, hyp)
+            script = edit_script(ref, hyp)
+            counts = {"replace": 0, "insert": 0, "delete": 0, "match": 0}
+            for tag, _rp, _hp in script:
+                counts[tag] += 1
+            self.assertEqual(counts["replace"], ops["sub"])
+            self.assertEqual(counts["insert"], ops["ins"])
+            self.assertEqual(counts["delete"], ops["del"])
+            # 'match' steps are emitted, so every ref and hyp character is
+            # accounted for exactly once (a full alignment, not just ops).
+            self.assertEqual(counts["replace"] + counts["match"],
+                             len(ref) - counts["delete"])
+            self.assertEqual(counts["replace"] + counts["match"],
+                             len(hyp) - counts["insert"])
+
+    def test_edit_script_runs_are_contiguous(self):
+        # Phase 2 reads contiguous runs of inserted text; equal-character
+        # diagonal steps must appear as 'match' so a run of inserts is truly
+        # adjacent in the hypothesis, never silently bridged by a match.
+        script = edit_script("abcdef", "abcXdef")
+        self.assertIn(("insert", 3, 3), script)
+        insert_positions = [hp for tag, _rp, hp in script if tag == "insert"]
+        self.assertEqual(insert_positions, [3])
 
     def test_score_window_reports_the_reference_length_and_ops(self):
         ref = "كتاب " * 40
