@@ -67,6 +67,15 @@ from score_lamae_pages import (  # noqa: E402
     score_pages,
     score_window,
 )
+from lamae_error_budget import (  # noqa: E402
+    OcrLine,
+    body_channel,
+    is_apparatus_like,
+    is_apparatus_line,
+    is_running_header,
+    load_ocr_lines,
+    repeated_line_texts,
+)
 from src.pipeline.evaluation.evaluate_cer import normalize_text  # noqa: E402
 
 REAL_SEGMENTS = Path("/tmp/opencode/folios.json")
@@ -555,6 +564,76 @@ class TestRangeBaselineOnRealBook(unittest.TestCase):
         self.assertGreater(base["ocr_over_gt_length_ratio"], 1.0)
         self.assertGreater(base["ocr_chars"], base["gt_chars"])
         self.assertGreater(base["ops_total"]["ins"], 0)
+
+
+class TestBodyChannelDecomposition(unittest.TestCase):
+    """The GT-independent apparatus split (user decision 2026-10-14).
+
+    The raw CER stays the official headline; this decomposition adds a second,
+    apparatus-free number. These tests pin the two properties that make it
+    defensible: the classifier never reads the reference, and the exclusions
+    are conservative (verse lines are never apparatus).
+    """
+
+    HEADER = "اللامع العزيزيشرح ديوان المتبيلأبي العلاء المعري"
+
+    def test_running_header_signature_needs_title_and_author(self):
+        self.assertTrue(is_running_header(self.HEADER))
+        self.assertFalse(is_running_header("وقوله الكامل في مدح سيف الدولة"))
+        # the title alone (a body mention) is not a header
+        self.assertFalse(is_running_header("اللامع العزيزي كتاب شرح"))
+
+    def test_verse_lines_are_never_apparatus(self):
+        line = OcrLine("ديوان المتنبي ... ص ٣", is_verse=True)
+        self.assertTrue(is_apparatus_like(line.text))   # markers present
+        self.assertFalse(is_apparatus_line(line, frozenset()))
+
+    def test_is_apparatus_line_catches_citation_and_header(self):
+        prose = OcrLine("والمعنى مسئدا في نيا إسآدا", is_verse=False)
+        self.assertFalse(is_apparatus_line(prose, frozenset()))
+        cite = OcrLine("ومراتب النحويين لأبي الطيب اللغوي ص ٣", is_verse=False)
+        self.assertTrue(is_apparatus_line(cite, frozenset()))
+        header = OcrLine(self.HEADER, is_verse=False)
+        self.assertTrue(is_apparatus_line(header, frozenset()))
+        # a repeated line counts only when it carries a title/author token
+        self.assertTrue(is_apparatus_line(header, frozenset({self.HEADER})))
+
+    def test_recurring_body_formula_is_not_apparatus(self):
+        # «وقوله» + meter recurs across pages but is transcribed body text, not
+        # boilerplate; recurrence alone must not remove it.
+        for text in ("وقولهالكامل", "ومن التي أولها", "وقولهالخفيف"):
+            line = OcrLine(text, is_verse=False)
+            self.assertFalse(is_apparatus_line(line, frozenset({text})))
+
+    def test_generic_body_words_are_not_citation_markers(self):
+        # dropped after the validity check (their lines matched the GT 27-36%)
+        for text in ("شرح", "ديوان المتنبي", "كتاب معجم"):
+            self.assertFalse(is_apparatus_like(text))
+
+    def test_body_channel_removes_only_apparatus_lines(self):
+        raw = (self.HEADER + "\n"
+               "والمعنى مسئدا في نيا إسآدا\n")
+        lines, hyp = load_ocr_lines(raw)
+        ref = normalize_text("والمعنى مسئدا في نيا إسآدا")
+        script = edit_script(ref, hyp)
+        out = body_channel(ref, lines, script, frozenset())
+        self.assertEqual(out["apparatus_lines"], 1)
+        self.assertEqual(out["apparatus_chars"],
+                         len(normalize_text(self.HEADER)))
+        self.assertGreater(out["apparatus_extra"], 0)
+        # the body line survives, so it is neither substituted nor dropped
+        self.assertEqual(out["ops"]["sub"], 0)
+        self.assertEqual(out["ops"]["del"], 0)
+
+    def test_repeated_line_texts_flags_boilerplate_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            for page in (7, 8, 9):
+                Path(d, f"page_{page:03d}.txt").write_text(
+                    "سطر يتكرر على الصفحات\n"
+                    f"خاص بالصفحة {page} وحدها\n", encoding="utf-8")
+            rep = repeated_line_texts(7, 9, Path(d))
+        self.assertIn(normalize_text("سطر يتكرر على الصفحات"), rep)
+        self.assertNotIn(normalize_text("خاص بالصفحة 7 وحدها"), rep)
 
 
 if __name__ == "__main__":

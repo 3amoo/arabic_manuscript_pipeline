@@ -88,13 +88,34 @@ from score_lamae_pages import (  # noqa: E402
 _ARABIC_DIGITS = "٠١٢٣٤٥٦٧٨٩"
 # Strong citation-apparatus markers: an editor's source citation almost always
 # names the reference work or the verb "في <work>". Kept as a named set so the
-# classification is auditable, not a magic regex.
+# classification is auditable, not a magic regex. Generic words that are also
+# ordinary body text ("شرح", "ديوان", "معجم") were dropped after a validity
+# check showed their lines matched the GT 27-36% of the time.
 _CITATION_MARKERS = (
-    "ديوان", "الأغاني", "اللسان", "تاج العروس", "شرح", "الطبقات",
+    "الأغاني", "اللسان", "تاج العروس", "الطبقات",
     "الوفيات", "الفهرست", "المقاييس", "الخصائص", "أساس البلاغة",
-    "المنصف", "جمهرة", "برواية", "الصحاح", "القاموس", "معجم", "سيرة",
+    "المنصف", "جمهرة", "برواية", "الصحاح", "القاموس", "سيرة",
 )
 _PAGE_CONF_RE = re.compile(r"#\s*Page Confidence:\s*([0-9]+(?:\.[0-9]+)?)")
+
+# Body-channel decomposition (user decision, 2026-10-14): the held-out GT is the
+# Shamela *base text*, but a scanned page also carries the printed edition's
+# apparatus (running header/footer, editor citations, footnote notes) that the
+# base text does not. Those lines land in the OCR hypothesis as insertions and
+# inflate CER without saying anything about recognition. We therefore report a
+# SECOND, decomposed number — CER with those apparatus lines removed — and keep
+# the raw CER as the official headline. The classifier is GT-independent (it
+# never looks at the reference), so it cannot "hide" an error by definition.
+#
+# Two apparatus signals, both conservative:
+#   1. the running-header signature — the book title AND the author in one line;
+#   2. a repeated line — but only when it also carries a title/author token, so
+#      recurring *body* formulas ("وقوله" + meter, "ومن التي أولها") are kept.
+# `is_apparatus_like` (citation markers / digits) is the third signal, reused.
+_BOILERPLATE_MIN_PAGES = 3
+_HEADER_TITLE_TOKENS = ("اللامع", "العزيزي")
+_HEADER_AUTHOR_TOKENS = ("المعري", "العلاء", "المتنبي")
+_HEADER_TOKENS = _HEADER_TITLE_TOKENS + _HEADER_AUTHOR_TOKENS
 
 
 def page_confidence(raw_text: str) -> float | None:
@@ -171,6 +192,68 @@ def _blank_coverage() -> dict:
         "ocr_matched": 0, "ocr_extra": 0,
         "extra_verse": 0, "extra_apparatus": 0, "extra_other_prose": 0,
         "substitutions": 0,
+    }
+
+
+def _has_header_token(line: str) -> bool:
+    """Does the line carry a book-title or author token (running header/footer)?"""
+    return any(tok in line for tok in _HEADER_TOKENS)
+
+
+def is_running_header(line: str) -> bool:
+    """Running header/footer: the book title AND the author on one line."""
+    has_title = any(t in line for t in _HEADER_TITLE_TOKENS)
+    has_author = any(a in line for a in _HEADER_AUTHOR_TOKENS)
+    return has_title and has_author
+
+
+def is_apparatus_line(line: OcrLine, repeated: frozenset[str]) -> bool:
+    """GT-independent test: is this OCR line edition apparatus, not base text?
+
+    Verse lines are never apparatus (the poem is base text); a prose line is
+    apparatus if it carries the running-header signature, looks like a citation
+    (`is_apparatus_like`), or recurs across pages while carrying a title/author
+    token (recurring body formulas are not).
+    """
+    if line.is_verse:
+        return False
+    if line.is_apparatus or is_running_header(line.text):
+        return True
+    return line.text in repeated and _has_header_token(line.text)
+
+
+def repeated_line_texts(lo: int, hi: int, ocr_dir: Path,
+                        min_pages: int = _BOILERPLATE_MIN_PAGES
+                        ) -> frozenset[str]:
+    """Normalized line texts that recur on >= min_pages distinct pages."""
+    pages: dict[str, set[int]] = {}
+    for page in range(lo, hi + 1):
+        for line in load_ocr_lines(load_raw(page, ocr_dir))[0]:
+            pages.setdefault(line.text, set()).add(page)
+    return frozenset(t for t, ps in pages.items() if len(ps) >= min_pages)
+
+
+def body_channel(ref: str, lines: list[OcrLine],
+                 script: list[tuple[str, int, int]],
+                 repeated: frozenset[str]) -> dict:
+    """Re-score one page with apparatus lines removed from the hypothesis."""
+    apparatus = {line for line in lines
+                 if is_apparatus_line(line, repeated)}
+    body_hyp = " ".join(line.text for line in lines if line not in apparatus)
+    ops = edit_ops(ref, body_hyp)
+    apparatus_extra = 0
+    for tag, _ref_pos, hyp_pos in script:
+        if tag != "insert":
+            continue
+        line = line_class_at(lines, hyp_pos)
+        if line is not None and line in apparatus:
+            apparatus_extra += 1
+    ops["cer"] = round(ops["dist"] / len(ref), 4) if ref else None
+    return {
+        "ops": ops,
+        "apparatus_lines": len(apparatus),
+        "apparatus_chars": sum(len(line.text) for line in apparatus),
+        "apparatus_extra": apparatus_extra,
     }
 
 
@@ -404,7 +487,8 @@ def load_raw(page: int, ocr_dir: Path) -> str:
 def range_rows(lo: int, hi: int, segments: list[dict], stream: str,
                seg_offsets: list[int], ocr_dir: Path,
                grams: set[int] | None = None,
-               base_pow: int | None = None) -> list[dict]:
+               base_pow: int | None = None,
+               repeated: frozenset[str] = frozenset()) -> list[dict]:
     """Per-page ref span + OCR lines + coverage + confidence, for lo..hi."""
     located, _ = locate_pages(list(range(lo, hi + 2)), stream, ocr_dir,
                               segments, seg_offsets, verbose=False)
@@ -430,6 +514,7 @@ def range_rows(lo: int, hi: int, segments: list[dict], stream: str,
                     "del": sc["del"]})
         script = edit_script(ref, hyp)
         row["coverage"] = cover_page(ref, lines, hyp, script)
+        row["body"] = body_channel(ref, lines, script, repeated)
         if grams is not None:
             row["containment"] = containment_page(ref, hyp, script,
                                                    grams, base_pow)
@@ -447,6 +532,7 @@ def summarize(rows: list[dict]) -> dict:
             _merge(cont, r["containment"])
     gt = cov["gt_chars"] or 1
     ocr = cov["ocr_chars"] or 1
+
     cers = [r["cer"] for r in scored]
     conf = [(r["confidence_percent"], r["cer"]) for r in scored
             if r["confidence_percent"] is not None]
@@ -480,8 +566,38 @@ def summarize(rows: list[dict]) -> dict:
         "extra_other_prose_share": round(
             cov["extra_other_prose"] / (cov["ocr_extra"] or 1), 4),
         "confidence_vs_cer": confidence_correlation(conf),
+        "body_channel": _body_channel_summary(scored, cov),
     }
     return summary
+
+
+def _body_channel_summary(scored: list[dict], cov: dict) -> dict:
+    """Aggregate the apparatus-free channel across the scored pages."""
+    body = [r["body"] for r in scored if "body" in r]
+    body_ref = sum(r["coverage"]["gt_chars"] for r in scored)
+    body_ins = sum(b["ops"]["ins"] for b in body)
+    body_dist = sum(b["ops"]["dist"] for b in body)
+    body_cers = [b["ops"]["cer"] for b in body if b["ops"]["cer"] is not None]
+    apparatus_extra = sum(b["apparatus_extra"] for b in body)
+    raw_dist = cov["substitutions"] + cov["ocr_extra"] + cov["gt_dropped"]
+    return {
+        "ref_chars": body_ref,
+        "raw_cer_concat": round(raw_dist / body_ref, 4) if body_ref else None,
+        "body_cer_concat": round(body_dist / body_ref, 4) if body_ref else None,
+        "body_sub": sum(b["ops"]["sub"] for b in body),
+        "body_ins": body_ins,
+        "body_del": sum(b["ops"]["del"] for b in body),
+        "body_cer_mean": round(statistics.mean(body_cers), 4)
+        if body_cers else None,
+        "body_cer_median": round(statistics.median(body_cers), 4)
+        if body_cers else None,
+        "apparatus_lines": sum(b["apparatus_lines"] for b in body),
+        "apparatus_chars": sum(b["apparatus_chars"] for b in body),
+        "apparatus_extra": apparatus_extra,
+        "apparatus_share_of_extra": round(
+            apparatus_extra / (cov["ocr_extra"] or 1), 4),
+        "extra_removed": cov["ocr_extra"] - body_ins,
+    }
 
 
 def confidence_correlation(pairs: list[tuple[float, float]]) -> dict:
@@ -571,6 +687,22 @@ def _print_report(summary: dict, rows: list[dict], diac: dict) -> None:
     print("  (per-line confidence is not persisted by the pipeline; only the "
           "page-level\n   '# Page Confidence' header is available on stored "
           "output.)", file=out)
+    print("\n-- 6. body channel (apparatus removed, GT-independent) --", file=out)
+    bc = summary["body_channel"]
+    print(f"raw CER {bc['raw_cer_concat']} (this report's span-sum basis; the "
+          f"official headline is\n   score_lamae_pages' concatenated CER)  ->  "
+          f"body-channel CER {bc['body_cer_concat']}", file=out)
+    print(f"body ops sub/ins/del {bc['body_sub']}/{bc['body_ins']}/"
+          f"{bc['body_del']}", file=out)
+    print(f"apparatus lines {bc['apparatus_lines']}  chars "
+          f"{bc['apparatus_chars']}  extra {bc['apparatus_extra']} = "
+          f"{bc['apparatus_share_of_extra'] * 100:5.1f}% of all extra", file=out)
+    print(f"extra chars removed from the scored hypothesis: "
+          f"{bc['extra_removed']}", file=out)
+    print("  (only running header/footer + citation-like lines are removed; "
+          "the bio/prosody\n   footnote notes are NOT caught and stay in the "
+          "body channel, so the body-channel\n   CER is a conservative upper "
+          "bound on the apparatus's share of the error.)", file=out)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -588,7 +720,8 @@ def main(argv: list[str] | None = None) -> int:
     ocr_dir = Path(args.ocr_dir)
 
     rows = range_rows(lo, hi, segments, stream, seg_offsets, ocr_dir,
-                      *build_gt_kgrams(stream))
+                      *build_gt_kgrams(stream),
+                      repeated=repeated_line_texts(lo, hi, ocr_dir))
     summary = summarize(rows)
     diac = diacritic_split(segments, ocr_dir, pages)
     _print_report(summary, rows, diac)

@@ -58,11 +58,17 @@ binarization + band detection sit upstream of the recognizer with a fixed 51px b
 so end-to-end DPI invariance is *not* proven. Phase 1's re-verify is load-bearing: CER
 at a fixed located offset, per DPI arm.
 
-**4. Binarization block size has a real but modest effect.** A/B on page 8 at 200 DPI:
-block 51 → CER 0.529, block 31 → 0.489, block 21 → 0.491, block 71 → 0.532. The
-shipped block (51) is **not DPI-aware** and equals a *full line height* on this book
-(51px median band) versus a third of one on the tuned book (165px bands) — the same
-3× type-size mismatch that plan 023's rule-detector fix handled with ratio guards.
+**4. Binarization block size has a real but modest effect — on one page, at a rejected
+geometry.** A/B on page 8 at 200 DPI: block 51 → CER 0.529, block 31 → 0.489, block 21
+→ 0.491, block 71 → 0.532. The shipped block (51) is **not DPI-aware** and equals a
+*full line height* on this book (51px median band) versus a third of one on the tuned
+book (165px bands) — the same 3× type-size mismatch that plan 023's rule-detector fix
+handled with ratio guards. **Phase 3 re-measured this across 12 held-out pages at the
+Phase-1 reference geometry (`scripts/block_ab_lamae.py`) and it does NOT generalize:**
+mean CER@ref 51 → **0.946**, 31 → 0.955 (+0.9pp), 21 → 0.962 (+1.6pp); on the 9 pages
+whose CER ≤1.5 the deltas are +1.2pp / +2.0pp. The single-page 0.529→0.489 signal was
+an artifact of the best-slide window geometry this plan rejects (§7). **Lever retired —
+block stays 51.**
 
 **5. The error is substitution-dominant — at one window geometry.** At page 8's clean
 window (an OCR-length 611-char window): **243 substitutions / 55 deletions / 0
@@ -181,6 +187,24 @@ With the harness, answer: **where does the 0.5 live?**
 whether it is recognizer-type or segmentation-type. This determines whether Phase 3 is
 the whole treatment or a warm-up.
 
+**Post-verdict (2026-10-14, user decision "fix the measurement, not OCR").** The verdict
+is segmentation-type, so the apparatus was separated *in the measurement* rather than in
+the pipeline. `lamae_error_budget.py` gains a GT-independent `body_channel` decomposition:
+a line is apparatus when it carries the book-title+author running header, matches
+`is_apparatus_like`, or recurs across ≥3 pages *while carrying a title/author token*; verse
+lines are never apparatus. Raw CER stays the official headline; the report adds
+**body-channel CER 0.8157 vs raw 1.1508** (same span-sum basis) on pages 7–60, removing
+13,555 extra chars (captured apparatus = 32.7% of all extra). The channel is deliberately
+conservative — the editor's bio/prosody footnote notes are not caught and remain in the
+body — so 0.8157 is an upper bound on the apparatus's share. The dominant extra chars
+(≈73%) sit on lines absent from the *entire* GT stream (8-gram share ≤0.3), so the
+residual is a content-layer difference, not a recognizer defect. A validity check against
+the GT shows 72.3% of the flagged lines' chars are pure insertions (the 27.7% that align
+are mostly coincidental matches on the recurring header/bio wording); an earlier cut that
+keyed on *bare* recurrence and on generic markers («شرح»/«ديوان»/«معجم») over-flagged
+recurring body formulas («وقوله»+meter, «ومن التي أولها») and was dropped. No pipeline
+behaviour change; invariant unchanged.
+
 ### Phase 3 — Spend the cheap levers, measured
 
 - **Binarization block size as a type-size fraction — but the naive design is
@@ -197,7 +221,13 @@ the whole treatment or a warm-up.
   about *production* binarization, not a measurement pass), or (iii) peak spacing of
   the grayscale horizontal ink projection. The deskew dependency is the binding one —
   `preprocess_page` runs before any band exists, so a per-page estimate roughly doubles
-  the ~14.5 s/page cost unless cached.
+  the ~14.5 s/page cost unless cached. **Phase-3 result: measured and retired.** The
+  pre-conditions below were met (byte-identity *is* feasible), but the lever itself does
+  not pay: `scripts/block_ab_lamae.py` re-measured 51/31/21 across 12 held-out pages at
+  the Phase-1 reference geometry and block 51 is best (mean CER@ref 0.946 vs 0.955 vs
+  0.962); the §4.2 single-page gain did not generalize. **No estimator was coded** — the
+  type-size-relative block is not worth the frozen-corpus risk for a lever that is
+  neutral-to-negative when measured honestly.
 - **Byte-identity on the tuned book is a quantization problem, not a rounding
   accident.** `page_median_band_height` is per region, per page. For a fraction to
   reproduce exactly 51 on every tuned-book page, every page's median must land in the
@@ -209,6 +239,20 @@ the whole treatment or a warm-up.
   delta (§4.12) and a deliberate invariant re-pin. **`verify_all` green does not prove
   byte-identity** — it only asserts stored files are unchanged; proving it needs a
   re-run of tuned-book pages and a hash comparison.
+  - **Pre-condition result (measured; `scripts/band_height_distribution.py` — the
+    pipeline's own binarization(block 51)+layout+band detector at 200 DPI, no OCR).**
+    Poetry-region per-page median band height: tuned book (عمود النسب نسخة 2, pages
+    23–67, 45/45 pages) **167.0–185.5px** (page median 172.5); اللامع (pages 7–60, 53/54
+    pages) **48.0–65.0px** (page median 57.5). The distributions **do not overlap** — a
+    102px empty gap (65→167) — so the step function is **feasible**: any threshold T
+    with 65 < T ≤ 167 (e.g. **T=100**) gives block=51 on every tuned page, meeting
+    spec-010's byte-identity guard. Region-agnostic caveat: the tuned book's *prose*
+    medians dip as low as 81px, so an estimator reading the prose region instead would
+    need T ≤ 81 to keep those pages at 51 — but the pipeline already derives the median
+    from the poetry region (`main.py:612`), where separation is clean. The sub-threshold
+    block value for اللامع is **not** chosen here; that is the Phase-3 execution work
+    (needs the non-circular two-pass estimator above). Raw JSON:
+    `/tmp/opencode/bands_{amoud,lamae}.json`.
 - **The retry arm inverts if the primary becomes relative.**
   `page_confidence_reprocess.retry_block_size: 31` is absolute; if اللامع's primary
   pass moves to ~15, the "finer retry" becomes coarser than the primary. Relativize
@@ -216,11 +260,22 @@ the whole treatment or a warm-up.
 - **Confidence recalibration.** If Phase 2 shows confidence is non-predictive on this
   book, the reprocess loop and the escalation bands are inert here. Either recalibrate
   the bands against measured CER or record the gap — but do not ship a threshold
-  change without measuring it (§4.10).
+  change without measuring it (§4.10). **Measured: record the gap, do not recalibrate.**
+  Page-level `pearson r(confidence, CER) = 0.229` (n=54, mean conf 82.4%, mean CER 1.48)
+  — weak. Every page sits above the 50% reprocess threshold, so the loop never fires
+  here (§4.6). Lowering the threshold is contraindicated: the retry arm's block (31) is
+  the *worse* arm per §4.2's re-measurement above. So the reprocess loop is simply inert
+  on this book, and that is the correct state — no threshold change.
 
 **Bar:** CER before/after on the held-out page set (scored at located offsets, Phase 1
 harness); the tuned book proven byte-identical by re-run + hash, or its measured delta
 accepted and re-pinned with cause.
+
+**Phase 3 outcome: no shippable lever, no code change.** The block-size lever was
+measured and retired (§4.2), and the confidence/reprocess lever is correctly inert
+(§4.6). Both conclusions are measurement results, not assumptions; the frozen corpus
+and invariant are untouched, so the Bar holds trivially (before == after). Phase 4
+(recognizer) remains the only lever that could move the substitution-dominant residual.
 
 ### Phase 4 — The recognizer (GATED, needs the user's call)
 
@@ -240,11 +295,40 @@ page range; (2) the **training cost** against spec 013's measured limits (batch 
 384 px ceiling on the 4 GB GTX 1650) — a 3× corpus triples that cost, and the user's
 decision needs it.
 
+**Measured (2026-10-14, `scripts/lamae_pairing_yield.py`, read-only).** Over the
+held-out range 7–60 (54/54 pages located, no monotonicity violation), aligning each
+page's OCR to its located GT span and accepting a line at per-line CER < 0.6:
+**408 pairable lines → 63 verse rows (×2) + 345 prose lines = 471 crops**, or **8.72
+crops/page** (median 9) — ~56% of spec 013's 15.5 crops/page on the tuned book, so the
+yield is not the blocker the "≈2,000+ is a guess" caveat feared. Training cost at spec
+013's measured ~60 samples/s (batch 4 / 384 px, 30 epochs): **471 crops ≈ 3.9 min**;
+the 404-crop and 836-crop runs price at 3.4 / 7.0 min. *Caveats:* the harness aligns
+the page's final text, not the detected band crops, so this is the yield the recipe
+would draw, not a dataset; a verse row counts as two crops and a prose line as one,
+per spec 014's 418-rows→836-crops convention; pages 61+ are unmeasured, so a
+whole-book figure (~13k crops *if* this density holds) is an extrapolation, not a
+measurement.
+
 This phase is **not pre-approved.** Spec 014's stop condition was recorded as binding,
 and reopening a closed line needs the user's explicit decision with both numbers in
 hand. Phase 2's error budget is what makes that decision an informed one: if the error
 is segmentation-type or concentrated in a fixable preprocessing defect, Phase 4 never
 opens.
+
+**Decisive gate measurement — Phase 4 CLOSED (2026-10-14).** The two numbers above clear
+*cost*, so the last question before the gate is what the corpus would *teach*. The
+fine-tune labels come straight from the GT (`build_ft_dataset.py` emits the raw GT verse
+text as the label), so the label's vocalization is the signal the recognizer learns.
+اللامع's Shamela GT is essentially **unvocalized**: **1.09%** diacritics over the whole
+stream (`book_with_tashkeel.txt`, 11,975 / ~1.10M Arabic chars) and **0%** across all 54
+held-out page slices — against the tuned book's `عمود_النسب.clean.md` at **38.2%**. A
+اللامع corpus would therefore train the model to **suppress diacritics** — the exact
+quality the program exists to preserve (§4.6, spec 011/014). spec 014's binding stop
+already caps the letter upside (corpus 346→688 *shrank* the gain −1.8pp → −0.7pp), so
+Phase 4 trades a bounded, shrinking letter gain for a direct regression on the primary
+objective. **It is contraindicated by the data itself: the gate does not open, and no
+corpus is built.** This closes plan 024 with Phases 1–3 measured and Phase 4 refused on
+evidence.
 
 ## What this plan deliberately does not do
 
