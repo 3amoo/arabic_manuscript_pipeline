@@ -70,12 +70,15 @@ corrections — history, not regression. Reports live in `data/evaluation_report
 
 **Held-out book — اللامع العزيزي** (the current accuracy measurement target by
 user direction, plan 023): GT is the Shamela human transcription (1.44M chars) —
-the first *independent* GT (human, not pipeline-derived). Side-level baseline
-"0.512" is **not reproducible** — the staircase scorer's page→side assignment
-breaks at this CER; brute-force per-page windows give true per-page CER
-**~0.48–0.63** (substitution-dominant at one window geometry; unconfirmed).
-Plan 024 Phase 1 replaces the scorer with a locate-then-score per-page harness
-(`scripts/score_lamae_pages.py`, in progress).
+the first *independent* GT (human, not pipeline-derived). Plan 024 replaced the
+non-reproducible staircase "0.512" with the project's own metric — **CER =
+distance / GT length** — over pages 7–60 via `scripts/score_lamae_pages.py`
+(locate-then-score per page; 54/54 located, zero monotonicity violations):
+GT 37,310 / OCR 66,764 (ratio 1.79) → **CER 1.12**, distance dominated by
+insertions (33,184) that are largely the scanned edition's editorial apparatus
+(page numbers, citations) absent from the Shamela GT. Raw CER 1.12 is the honest
+headline against this GT; **body-channel CER 0.8157** (apparatus removed, via a
+GT-independent classifier) is the recognition-side proxy. Detail: plan 024.
 
 ## Closed levers — do NOT reopen without a genuinely new signal
 
@@ -100,37 +103,45 @@ Guardrails also: keep `raw_text/` + 136 escalation markers untouched; don't add
 cross-skeleton merging (عمرو/عمر distinction); keep Atria last in rotation;
 `check_vision_health.py` stays a pre-push step.
 
-## Active work (as of 2026-10-14)
+## Plan 024 — اللامع recognition quality — COMPLETE (2026-10-14/15)
 
-**Plan 024 — اللامع recognition quality** (`plans/024-lamae-recognition-quality/plan.md`),
-created today, continuing plan 023:
+`plans/024-lamae-recognition-quality/plan.md` — continuing plan 023. All phases
+landed; committed `6c9d585` (Phase 1) … `654f92b` (Phase 2) … `860fa66`
+(Phases 2-follow-up + 3 + 4). No pipeline behaviour change throughout; evidence
+invariant `e6882437c75e10e223d9` (457 files) unchanged.
 
-1. **Phase 1 — per-page alignment harness (the unlock, IN PROGRESS in the
-   working tree):** one canonical GT-stream normalizer module; `score_lamae_pages.py`
-   (locate by verbatim-window majority vote → assert monotonicity → score at
-   located offset, window = measured chars/page, never OCR length); validate
-   against plan 023's table and explain the p29/p58 gap; rewrite
-   `build_page_gt.py` from the canonical module; re-verify the DPI A/B at CER
-   level; fix the page set. Retires `score_held_out.py` + `assign_pages_to_sides.py`.
-2. **Phase 2 — error budget:** length-mismatch decomposition first, then op
-   breakdown (diacritics kept/stripped), confidence-vs-error per band, coverage
-   (dropped vs inflated), distribution.
-3. **Phase 3 — cheap levers, measured:** type-size-relative binarization block
-   (must be non-circular — two-pass or Otsu-based estimator; tuned-book
-   byte-identity proven by re-run + hash, not just verify_all green); retry-arm
-   relativization; confidence recalibration (pages at 0.48–0.63 CER carry 73–90%
-   confidence so the <50% reprocess loop never fires on this book).
-4. **Phase 4 — recognizer fine-tuning on اللامع (GATED on the user):** spec
-   014's stop condition was about data scale (346→688 samples); اللامع offers
-   ~1.35M chars of human GT against exactly the failure mode (small dense
-   type). Measure pairing yield + training cost first; then the user decides.
+1. **Phase 1 — per-page alignment harness (the unlock):** one canonical GT-stream
+   module (`scripts/lamae_gt_stream.py`); `scripts/score_lamae_pages.py`
+   (locate by verbatim-window majority vote → assert monotonicity → score at the
+   located offset; window = measured chars/page, never OCR length);
+   `scripts/build_page_gt.py` rewritten over the canonical stream; DPI A/B
+   re-verified at CER level (300 DPI best for both probed pages). Retired
+   `score_held_out.py` + `assign_pages_to_sides.py`. Pages 7–60 turned out to be
+   a **mosaic of older code states** and were regenerated under current code
+   (`--no-vision`, 49/54 changed); the locator was hardened (strip the
+   geometrically-guessed ` ... ` before window sampling; require ≥2 independent
+   windows) → zero monotonicity violations. Re-pin #6.
+2. **Phase 2 — error budget:** dominant class is **insertion/length**
+   (33,184 = 77.4% of distance); region is **apparatus prose** (coverage:
+   GT 74.0% matched / 10.0% dropped; OCR 49.7% extra). Verdict:
+   **segmentation/coverage, not recognizer error**. `scripts/lamae_error_budget.py`
+   gained a GT-independent **body channel** (raw 1.1508 → body 0.8157, 32.7% of
+   the extra captured). Raw CER stays the headline.
+3. **Phase 3 — cheap levers, measured:** block-size lever **retired** (block 51
+   best across 12 held-out pages: 0.946 vs 0.955/0.962 — the single-page 31<51
+   signal did not generalize). Confidence/reprocess lever **correctly inert**
+   (r=0.229; every page above the 50% threshold). No code change.
+4. **Phase 4 — recognizer fine-tuning: GATE CLOSED on evidence, no corpus
+   built.** Gate numbers measured first (`scripts/lamae_pairing_yield.py`):
+   471 crops over pages 7–60 (8.72/page), ~3.9 min training at spec 013 rates.
+   But اللامع's GT is essentially **unvocalized** (1.09% diacritics over the whole
+   stream, 0% across the held-out slices, vs 38.2% for the tuned book), so a
+   corpus would teach the recognizer to **suppress diacritics** — contradicting
+   §4.6 / spec 011/014. Contraindicated by the data itself; plan 024 ends here.
 
-**Uncommitted WIP inventory (2026-10-14):** 57 modified files under
-`data/ground_truth/اللامع العزيزي/` + 4 untracked new files:
-`scripts/dpi_ab_lamae.py`, `scripts/lamae_gt_stream.py`,
-`scripts/score_lamae_pages.py`, `tests/test_score_lamae_pages.py`. Local HEAD
-is 1 commit ahead of origin (`33eab39` plan 024 fold-review commit) — push
-pending by user choice.
+**Repo state:** plan 024's final commit `860fa66` is on local `main`;
+`origin/main` is at `b59c160` (1 commit behind, push pending by user choice).
+Working tree clean.
 
 ## Hardware & environment
 
@@ -196,27 +207,19 @@ caches, and (since 2026-10-14) the agent tooling `.claude/`, `.opencode/`,
 disk; they are local scaffolding for Claude Code / opencode / speckit and are
 not needed to run or understand the pipeline.
 
-## Upgrade recommendations (2026-10-14 assessment)
+## What remains (2026-10-15 assessment)
 
-In order of leverage:
-
-1. **Finish plan 024 Phase 1** — the per-page harness. Nothing on اللامع can
-   be measured until CER is trustworthy per page; it is already in progress.
-2. **Phase 2 error budget, then Phase 3 cheap levers** — type-size-relative
-   binarization block + confidence recalibration (both measured on the held-out
-   set at located offsets).
-3. **The big one — plan 024 Phase 4: fine-tune the recognizer on اللامع's
-   1.35M chars of human GT** (~10× the corpus that saturated at 688 samples,
-   aimed exactly at the failure mode: small dense type). Gate first: measure
-   pairing yield (CER<0.6 line pairing on a ~0.5-CER book is unknown) and
-   training cost. The 4 GB GTX 1650 is the hard ceiling (batch 4 / 384px) —
-   renting one cloud GPU for the training run is the practical route; inference
-   stays local.
-4. **Cheapest operational lever — one paid vision-backend key:** spec 020
+1. **Plan 024 is complete** — Phases 1–3 measured, Phase 4 refused on evidence.
+   No recognizer lever remains that moves اللامع's error: the residual is a
+   content-layer difference (editorial apparatus absent from the Shamela GT),
+   and a fine-tune corpus would be unvocalized. Do not reopen without a
+   genuinely new signal (e.g. a new PaddleOCR Arabic model, or a vocalized
+   اللامع GT).
+2. **Cheapest operational lever — one paid vision-backend key:** spec 020
    measured real gains (25.9%→25.0%) whenever a backend was alive; every free
    tier is currently dead, so the whole escalation/correction stage is dormant.
-5. **Engineering hygiene (no CER effect):** split `main.py` into the package,
+3. **Engineering hygiene (no CER effect):** split `main.py` into the package,
    add `pyproject.toml` (installable, console entry point), GitHub Actions CI
    running the unittest gate + py_compile, ruff + gradual type hints.
-6. **Guardrail:** do not reopen any closed lever above; revisit the recognizer
+4. **Guardrail:** do not reopen any closed lever above; revisit the recognizer
    only if a new PaddleOCR Arabic model ships.
