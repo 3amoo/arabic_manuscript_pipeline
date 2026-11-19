@@ -10,18 +10,8 @@ python-dotenv>=1.0.0
 
 # Optional: only needed if settings.yaml's layout_detection.line_detector
 # is set to "surya". Pulls in torch - installs surya's DetectionPredictor
-# (pure torch line detector), NOT the newer VLM-based LayoutPredictor
-# (which additionally needs vllm or llama.cpp - not required here since
-# surya_line_detector.py only uses DetectionPredictor). See
-# surya_line_detector.py's module docstring for why.
+# (pure torch line detector), NOT any VLM-based predictor.
 # surya-ocr>=0.22.0
-
-# LLM backends (vision fallback + text correction)
-openai>=1.0.0
-groq>=0.9.0
-google-generativeai>=0.8.0
-cohere>=5.0.0
-httpx>=0.27.0
 
 # Testing
 pytest>=7.0.0

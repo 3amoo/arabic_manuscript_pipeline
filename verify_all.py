@@ -192,14 +192,11 @@ TEST_MODULES = [
     "tests.test_diacritic_metrics",
     "tests.test_cer_normalization",
     "tests.test_escalation_policy",
-    "tests.test_fallback_visibility",
     "tests.test_output_generator",
-    "tests.test_atria_text_backend",
     "tests.test_benchmark_cer_wer",
     "tests.test_clean_ground_truth",
-    # Phase 0 (NEXT_DEVELOPMENT_PLAN_2): these five were passing but
+    # Phase 0 (NEXT_DEVELOPMENT_PLAN_2): these were passing but
     # unwired, so a regression in any of them would not trip this check.
-    "tests.test_fallback_report",
     "tests.test_marginalia",
     "tests.test_measure_der",
     "tests.test_page_layout_detector",
@@ -252,11 +249,6 @@ TEST_MODULES = [
     # the real write path against a temp output root and pin that the
     # refusal message names the page and the flag.
     "tests.test_corpus_regeneration_guard",
-    # Phase D task 22: the escalation hallucination audit is review-only,
-    # and the test that keeps it that way is the byte-identical-input
-    # assertion - without it a future auto-fix could start rewriting the
-    # escalations log it is supposed to only read.
-    "tests.test_escalation_audit",
 ]
 # --no-vision: the smoke must be HERMETIC and reproducible. Vision backends
 # are external and non-deterministic, and main.py --start/--end processes

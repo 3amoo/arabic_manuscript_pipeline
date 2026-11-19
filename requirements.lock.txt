@@ -1,29 +1,10 @@
-# Exact pin of the environment that produced the certified baseline
-# (data/evaluation_reports/019-escalation-pass, invariant 21b1ed2f473218a260dc).
+# Exact pin of the environment that produced the certified baseline.
 #
 # Generated from myenv/ via `pip freeze`. Install into a FRESH venv:
 #   python3.11 -m venv myenv && myenv/bin/pip install -r requirements.lock.txt
 #
-# OpenCV note: the live venv had THREE opencv distributions installed
-# (opencv-python, opencv-python-headless, opencv-contrib-python). Only the
-# mainline APIs are used (verified by grepping every cv2.* symbol in src/ and
-# main.py — no xfeatures2d/aruco/ximgproc/etc.), so this lock pins the single
-# correct one: opencv-python-headless (the headless build, since the pipeline
-# never opens a display window). A stale opencv-python/opencv-contrib install
-# shadowing it would silently swap the loaded cv2 version.
-#
-# KNOWN-BENIGN RESOLVER CONFLICT (do NOT "fix" by upgrading, it was measured):
-# google-generativeai==0.8.6 hard-pins google-ai-generativelanguage==0.6.15,
-# whose declared range excludes protobuf>=6 — but vllm/nvidia-cutlass require
-# protobuf 6.x. A from-scratch `pip install -r` therefore fails with
-# ResolutionImpossible. This is a DECLARED-constraint conflict only: the
-# installed set runs correctly (verified — the lazy `import
-# google.generativeai` in vision_fallback.py:386 executes, GenerativeModel
-# initializes, protobuf 6.33.6 present). To install into a fresh venv, add
-# --no-deps and then `pip install protobuf==6.33.6`, or install with
-# --no-build-isolation against this list. Upgrading google-generativeai is NOT
-# an option: 0.8.6 is the final release (the SDK is deprecated) and it is the
-# only version paired to the fixed subpackage pin.
+# OpenCV note: the live venv had several opencv distributions installed; only
+# the mainline APIs are used, so this lock pins opencv-python-headless.
 
 opencv-python-headless==5.0.0.93
 
@@ -39,7 +20,6 @@ albumentations==2.0.8
 altair==6.2.2
 annotated-doc==0.0.5
 annotated-types==0.8.0
-anthropic==1.1.0
 anyio==4.14.2
 apache-tvm-ffi==0.1.11
 astor==0.8.1
@@ -60,7 +40,6 @@ chardet==7.6.0
 charset-normalizer==3.5.1
 click==8.4.2
 cloudpickle==3.1.2
-cohere==7.1.0
 colorlog==6.12.0
 compressed-tensors==0.17.0
 crc32c==2.9
@@ -95,14 +74,11 @@ flashinfer-python==0.6.18
 frozenlist==1.8.0
 fsspec==2026.7.0
 future==1.0.0
-google-ai-generativelanguage==0.6.17
 google-api-core==2.33.0
 google-api-python-client==2.199.0
 google-auth==2.57.0
 google-auth-httplib2==0.4.2
-google-generativeai==0.8.6
 googleapis-common-protos==1.75.0
-groq==1.6.0
 grpcio==1.83.0
 grpcio-status==1.71.2
 h11==0.16.0
@@ -200,8 +176,6 @@ nvidia-nvtx==13.0.85
 nvidia-nvtx-cu12==12.6.77
 nvidia-nvvm==13.4.59
 nvtx==0.2.15
-openai==3.3.1
-openai-harmony==0.0.8
 opentelemetry-api==1.44.0
 opentelemetry-exporter-otlp==1.44.0
 opentelemetry-exporter-otlp-proto-common==1.44.0
@@ -317,7 +291,6 @@ uritemplate==4.2.0
 urllib3==2.7.0
 uvicorn==0.52.4
 uvloop==0.22.1
-vllm==0.29.0
 watchdog==6.0.0
 watchfiles==1.2.0
 wcwidth==0.8.2

@@ -276,10 +276,10 @@ class TestDetectColumnsReachable(unittest.TestCase):
 
 @_NO_MAIN
 class TestNoVisionFlag(unittest.TestCase):
-    """--no-vision is what makes verify_all.py's smoke deterministic: it
-    forces the vision fallback off before any external call, so a page-range
-    run cannot be perturbed by non-deterministic backends (AGENTS.md §4.13,
-    §12). Guards the flag's parsing, its default, and its wiring in main()."""
+    """The pipeline is local-only: --no-vision is still accepted for
+    compatibility with verify_all.py's smoke command, but no external vision
+    backend is wired into main(). Guards the flag's parsing/default and that
+    no backend is instantiated."""
 
     def test_flag_defaults_off(self):
         with mock.patch.object(sys, "argv", ["main.py"]):
@@ -291,12 +291,10 @@ class TestNoVisionFlag(unittest.TestCase):
             args = main_mod.parse_args()
         self.assertTrue(args.no_vision)
 
-    def test_main_forces_vision_off_when_flag_set(self):
+    def test_main_wires_no_vision_backend(self):
         src = inspect.getsource(main_mod.main)
-        self.assertIn("no_vision", src,
-                      "--no-vision is no longer read in main()")
-        self.assertIn("vision_engine.enabled = False", src,
-                      "the flag no longer disables the vision engine")
+        self.assertIn("vision_engine = None", src,
+                      "no external vision backend may be wired in")
 
 
 if __name__ == "__main__":

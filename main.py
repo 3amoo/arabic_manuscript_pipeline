@@ -44,7 +44,6 @@ import cv2
 from src.pipeline.ingestion.input_handler import InputHandler
 from src.pipeline.ocr.ocr_engine import OCREngine
 from src.pipeline.output.output_generator import OutputGenerator
-from src.pipeline.ocr.vision_fallback import VisionFallbackEngine
 from src.pipeline.preprocessing.preprocessing import (
     preprocess_page, set_binarize_params, reset_binarize_params,
     adaptive_binarize_gray, _BINARIZE_BLOCK_SIZE, _BINARIZE_C,
@@ -1308,7 +1307,7 @@ def parse_args():
 
 def process_document(file_path: Path, config: dict, ocr_engine: OCREngine,
                       input_handler: InputHandler, output_generator: OutputGenerator,
-                      vision_engine: VisionFallbackEngine,
+                      vision_engine: object = None,
                       surya_detector: SuryaLineDetector = None,
                       start_page: int = None, end_page: int = None,
                       regenerate: bool = False) -> dict:
@@ -1478,19 +1477,6 @@ def main():
     setup_logging(config)
     logger = logging.getLogger(__name__)
 
-    # Ink-density threshold from settings.yaml (T014). One-time warning if
-    # the key is missing — the hardcoded default (0.02) still applies.
-    global _ink_density_threshold, _ink_density_threshold_warned
-    vf_cfg = config.get('vision_fallback', {})
-    if 'ink_density_threshold' in vf_cfg:
-        _ink_density_threshold = float(vf_cfg['ink_density_threshold'])
-    elif not _ink_density_threshold_warned:
-        logger.warning(
-            "vision_fallback.ink_density_threshold not set in settings.yaml "
-            "- using default 0.02"
-        )
-        _ink_density_threshold_warned = True
-
     logger.info("Starting Local Arabic OCR Pipeline")
 
     if args.start is not None or args.end is not None:
@@ -1517,19 +1503,10 @@ def main():
     ocr_engine = OCREngine(config.get('ocr', {}))
     output_generator = OutputGenerator(config.get('output', {}))
 
-    # Vision fallback is OFF by default (config['vision_fallback']['enabled']
-    # must be explicitly set to true in settings.yaml) so nothing calls an
-    # external API, spends quota, or requires an API key unless you opt in.
-    vision_engine = VisionFallbackEngine(config.get('vision_fallback', {}))
-    if getattr(args, "no_vision", False):
-        # --no-vision: deterministic, hermetic runs (verify_all.py's smoke).
-        # External vision backends are non-deterministic, so leaving them on
-        # makes a "reproduce the stored bytes" run both flaky and dependent
-        # on live API quota (AGENTS.md §4.13). Pages with no escalations are
-        # unaffected.
-        if vision_engine.enabled:
-            logger.info("Vision fallback DISABLED by --no-vision (deterministic run).")
-        vision_engine.enabled = False
+    # Local-only run: no external vision backend is wired in. The
+    # --no-vision flag remains accepted for compatibility with the
+    # hermetic smoke command in verify_all.py.
+    vision_engine = None
 
     # Surya line detection is OFF by default too
     # (config['layout_detection']['line_detector'] must be explicitly set
@@ -1571,9 +1548,6 @@ def main():
         except Exception as e:
             logger.error(f"Failed to process {file_path.name}: {e}", exc_info=True)
             continue
-
-    if vision_engine.enabled:
-        logger.info(vision_engine.summary())
 
     if ocr_engine.cache is not None:
         logger.info(ocr_engine.cache.summary())
