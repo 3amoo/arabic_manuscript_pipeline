@@ -1,9 +1,18 @@
 # PROJECT_CONTEXT.md — consolidated project context
 
+> ## ⛔ CLOSED — FAILED EXPERIMENT (2026-11-19)
+>
+> This project has been closed. Everything below describes the state **at
+> closure**, not ongoing work. The forward-looking "What remains" section and
+> the "In flight" notes in PROGRESS.md are superseded. The closing decision,
+> evidence and reopening conditions are in **`docs/FINAL_REPORT.md`**. Do not
+> start new work from this file without reading that document first.
+
 > Single load point for any session (human or agent) that needs the full project
 > state without re-exploring. Written 2026-10-14. The operating contract remains
 > `docs/AGENTS.md` (Arabic) — this file summarizes it and points at it; where
-> they disagree, AGENTS.md + the code win.
+> they disagree, AGENTS.md + the code win, except where `docs/FINAL_REPORT.md`
+> explicitly closes the project.
 
 ## What the project is
 

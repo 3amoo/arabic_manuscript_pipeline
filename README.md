@@ -1,5 +1,18 @@
 # Arabic Manuscript OCR Pipeline
 
+> ## ⛔ PROJECT CLOSED — FAILED EXPERIMENT (2026-11-19)
+>
+> This project is no longer under active development. It was closed as an
+> experiment that did not reach a usable, reproducible result at scale: all
+> cheap accuracy levers were measured and retired, the held-out CER is 1.1173
+> and dominated by content-layer differences, the recognizer fine-tune is
+> contraindicated by unvocalized GT, the vision backends are dormant, and the
+> stored corpus cannot be reproduced from a cold run.
+>
+> **Full closing record: [`docs/FINAL_REPORT.md`](docs/FINAL_REPORT.md).**
+> The code, tests, specs, plans and evidence are retained as a historical
+> record. Do not treat the pipeline or its numbers as a supported tool.
+
 Local-first pipeline for extracting text from scanned Arabic manuscripts (poetry with commentary/margin text), with an optional vision-LLM fallback for low-confidence lines and a separate LLM text-correction pass.
 
 ## How it actually works
